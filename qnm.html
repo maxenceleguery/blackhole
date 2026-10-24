@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QNM Continued-Fraction Explorer — Schwarzschild / Kerr / Taub-NUT</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px/1.5 ui-monospace,monospace;color:#ccc}
+  canvas{display:block;width:100vw;height:100vh;cursor:crosshair}
+  #ui{position:fixed;top:10px;left:10px;background:rgba(10,10,16,.8);padding:12px 14px;border:1px solid #333;border-radius:8px;backdrop-filter:blur(4px);max-width:270px}
+  #ui h2{font-size:13px;margin:0 0 8px;color:#fff;font-weight:600}
+  #ui label{display:block;margin:8px 0 2px;color:#9ad}
+  #ui select{width:100%;background:#161620;color:#ccc;border:1px solid #333;border-radius:4px;padding:3px}
+  #ui input[type=range]{width:100%}
+  #ui .v{color:#fff;float:right}
+  #ui .hint{margin-top:10px;color:#667;font-size:11px}
+  #ui .row{display:none}
+  #ov{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none}
+  #mode{margin-top:10px;padding-top:8px;border-top:1px solid #333;display:none}
+  #mode b{color:#7cf}
+  #wave{display:block;width:100%;height:70px;background:#0a0a12;border:1px solid #2a2a38;border-radius:4px;margin:6px 0}
+  #ring{background:#1c2b3a;color:#9cf;border:1px solid #345;border-radius:4px;padding:4px 10px;cursor:pointer;font:inherit}
+  #ring:hover{background:#24384c}
+  #nav{position:fixed;top:10px;right:12px;z-index:10;display:flex;gap:6px;font:12px/1 ui-monospace,monospace}
+  #nav a{padding:6px 10px;background:rgba(10,10,16,.72);border:1px solid #333;border-radius:6px;color:#9ad;text-decoration:none;backdrop-filter:blur(4px)}
+  #nav a:hover{background:rgba(30,40,55,.85);color:#cde}
+  #nav a.active{color:#fff;border-color:#4a6a8a;background:rgba(28,43,58,.9)}
+  /* ---- mobile / touch ---- */
+  canvas#c{touch-action:none}
+  #ui input[type=range]{height:26px;accent-color:#4a6a8a}
+  #panelToggle{position:fixed;z-index:11;display:none;
+    top:calc(10px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left));
+    padding:11px 14px;background:rgba(10,10,16,.82);border:1px solid #333;border-radius:8px;
+    color:#9ad;font:13px/1 ui-monospace,monospace;backdrop-filter:blur(4px);cursor:pointer}
+  body.mobile #panelToggle{display:block}
+  body.mobile #ui{display:none;max-width:min(330px,calc(100vw - 20px));max-height:72vh;overflow-y:auto;
+    top:calc(56px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left))}
+  body.mobile.ui-open #ui{display:block}
+  @media (max-width:560px){ #nav{flex-wrap:wrap;justify-content:flex-end;max-width:62vw} }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="ov"></canvas>
+<nav id="nav">
+  <a href="index.html">◍ Black Hole</a>
+  <a href="qnm.html" class="active">〜 QNM</a>
+  <a href="gw.html">≈ Waves</a>
+  <a href="binary.html">◎ Binary</a>
+</nav>
+<button id="panelToggle" aria-expanded="false" aria-controls="ui">☰ controls</button>
+<div id="ui">
+  <h2>◍ QNM continued fraction</h2>
+  <label>Spacetime</label>
+  <select id="metric">
+    <option value="0">Schwarzschild</option>
+    <option value="1">Kerr (radial, fixed A)</option>
+    <option value="2" selected>Taub-NUT</option>
+  </select>
+  <label>Multipole ℓ <span class="v" id="vell">2</span></label>
+  <input type="range" id="ell" min="0" max="5" step="1" value="2">
+  <div class="row" id="rowSchw">
+    <label>Field (perturbation spin)</label>
+    <select id="field">
+      <option value="0" selected>scalar (s=0)</option>
+      <option value="1">electromagnetic (s=1)</option>
+      <option value="2">gravitational (s=2) — the LIGO ringdown</option>
+    </select>
+  </div>
+  <div class="row" id="rowNut">
+    <label>NUT charge l <span class="v" id="vnut">1.00</span></label>
+    <input type="range" id="nut" min="0" max="3" step="0.02" value="1">
+    <label>Casimir C = q(q+1) <span class="v" id="vcas">6</span></label>
+    <input type="range" id="cas" min="0" max="42" step="1" value="6">
+  </div>
+  <div class="row" id="rowKerr">
+    <label>Spin a <span class="v" id="vspin">0.20</span></label>
+    <input type="range" id="spin" min="0" max="0.49" step="0.01" value="0.2">
+    <label>Azimuthal m <span class="v" id="vm">0</span></label>
+    <input type="range" id="m" min="-2" max="2" step="1" value="0">
+    <label>Separation A <span class="v" id="vA">6.0</span></label>
+    <input type="range" id="A" min="0" max="30" step="0.5" value="6">
+  </div>
+  <label>Depth (terms) <span class="v" id="vdepth">70</span></label>
+  <input type="range" id="depth" min="20" max="160" step="5" value="70">
+  <div class="hint">drag / 1-finger = pan · wheel / pinch = zoom · <b>click / tap a well = snap</b><br>axes: x = ω<sub>r</sub>, y = −ω<sub>i</sub> (damping)</div>
+  <div class="hint" id="read">ω = —</div>
+  <div id="mode">
+    <div>mode <b id="mw">—</b></div>
+    <div class="hint" id="mq"></div>
+    <canvas id="wave" width="244" height="70"></canvas>
+    <button id="ring">▶ ring</button>
+  </div>
+  <div class="hint" id="gpu"></div>
+</div>
+
+<script id="fs" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+out vec4 outColor;
+uniform vec2  uRes, uCenter;   // uCenter = (omega_r, -omega_i) at screen centre
+uniform float uScale;          // complex units across the screen height
+uniform int   uMetric, uEll, uDepth, uMazi, uField;
+uniform float uNut, uCasimir, uSpin, uSepA;
+
+// ---- complex arithmetic (vec2 = a+bi) ----
+vec2 R(float x){ return vec2(x,0.0); }
+vec2 cmul(vec2 a, vec2 b){ return vec2(a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x); }
+vec2 cinv(vec2 a){ return vec2(a.x,-a.y)/dot(a,a); }
+vec2 cdiv(vec2 a, vec2 b){ return cmul(a, cinv(b)); }
+float cabs(vec2 a){ return length(a); }
+const vec2 CI = vec2(0.0,1.0);
+
+// ---- 3-term recurrence coefficients (Schwarzschild / Kerr radial) ----
+void coefsSchw(float n, vec2 w, out vec2 al, out vec2 be, out vec2 ga){
+  float ell=float(uEll), eps=float(uField*uField)-1.0;  // eps=s^2-1: s=0 scalar,1 EM,2 gravitational
+  vec2 miw = cmul(vec2(0.0,-1.0), w);                 // -i w
+  al = R(n*n) + (2.0*miw+R(2.0))*n + 2.0*miw + R(1.0);
+  be = -( R(2.0*n*n) + (8.0*miw+R(2.0))*n + 8.0*cmul(miw,miw) + 4.0*miw + R(ell*(ell+1.0)-eps) );
+  ga = R(n*n) + 4.0*miw*n + 4.0*cmul(miw,miw) - R(eps) - R(1.0);
+}
+void coefsKerr(float n, vec2 w, out vec2 al, out vec2 be, out vec2 ga){
+  float a=uSpin, m=float(uMazi), A=uSepA;
+  float b=sqrt(max(1.0-4.0*a*a,1e-4));
+  vec2 iw=cmul(CI,w), w2=cmul(w,w), wm=0.5*w - R(a*m);
+  vec2 c0 = R(1.0) - iw - (2.0/b)*cmul(CI,wm);
+  vec2 c1 = R(-4.0) + 2.0*(2.0+b)*iw + (4.0/b)*cmul(CI,wm);
+  vec2 c2 = R(3.0) - 3.0*iw - (2.0/b)*cmul(CI,wm);
+  vec2 c3 = (4.0+2.0*b-a*a)*w2 - 2.0*a*m*w - R(1.0) - R(A) + (2.0+b)*iw + cmul((4.0*w+2.0*CI)/b, wm);
+  vec2 c4 = R(1.0) - 2.0*w2 - 3.0*iw - cmul((4.0*w+2.0*CI)/b, wm);
+  al = R(n*n) + cmul(c0+R(1.0), R(n)) + c0;
+  be = R(-2.0*n*n) + cmul(c1+R(2.0), R(n)) + c3;
+  ga = R(n*n) + cmul(c2-R(3.0), R(n)) + c4 - c2 + R(2.0);
+}
+void coefs3(float n, vec2 w, out vec2 al, out vec2 be, out vec2 ga){
+  if(uMetric==1) coefsKerr(n,w,al,be,ga); else coefsSchw(n,w,al,be,ga);
+}
+
+// ---- Lentz continued fraction: CF = b0 + a1/(b1 + a2/(b2 + ...)) ----
+// with b_n = beta_n, a_n = -alpha_{n-1} gamma_n. QNM <=> CF -> 0.
+float logCF3(vec2 w){
+  vec2 tiny = vec2(1e-30,0.0);
+  vec2 al,be,ga; coefs3(0.0,w,al,be,ga);
+  vec2 f = be; if(cabs(f)<1e-30) f=tiny;
+  vec2 Cl=f, Dl=vec2(0.0), aPrev=al;
+  for(int i=1;i<256;i++){
+    if(i>uDepth) break;
+    coefs3(float(i),w,al,be,ga);
+    vec2 an = -cmul(aPrev, ga), bn = be;
+    Dl = bn + cmul(an,Dl); if(cabs(Dl)<1e-30) Dl=tiny;
+    Cl = bn + cdiv(an,Cl); if(cabs(Cl)<1e-30) Cl=tiny;
+    Dl = cinv(Dl);
+    f = cmul(f, cmul(Cl,Dl));
+    aPrev = al;
+  }
+  return log(cabs(f)+1e-30);
+}
+
+// ---- Taub-NUT: 5-term recurrence, reduced 5->3 on the fly (fused with Lentz) ----
+float logCF_TN(vec2 w){
+  float l=uNut, l2=l*l, M=0.5, C=uCasimir;
+  float rt=sqrt(M*M+l2), rp=M+rt, rm=M-rt;
+  float rp2=rp*rp, rm2=rm*rm, s=(rp2+l2)/(2.0*rt), dr=rp-rm, dr2=dr*dr;
+  vec2 iw=cmul(CI,w), w2=cmul(w,w), iws=s*iw, omw=R(1.0)-iw;   // i w ,  w^2 , i w s , (1 - i w)
+  // P0..P4 (coefficients of the recurrence, ported from defineTaubNUT / eq 3.26)
+  float K1=(-2.0*rm*rp2 -4.0*l2*l2 -2.0*l2*rp*rm -4.0*l2*rp2)/dr2;
+  float K2=(rm2*rp2 +2.0*rm2*rp +6.0*l2*l2 +2.0*l2*rm2 +4.0*l2*rm*rp +2.0*l2*rp2)/dr2;
+  float K3=(-2.0*rm*rm2*rp -4.0*l2*l2 -4.0*l2*rm2 -2.0*l2*rm*rp)/dr2;
+  float K4=(rm2*rm2 +l2*l2 +2.0*l2*rm2)/dr2;
+  vec2 P0=(rp2+l2*l2+2.0*l2*rp2)/dr2 * w2;
+  vec2 P1=iw - R(1.0) + dr*iw + (K1+4.0*l2)*w2 - R(C);
+  vec2 P2=cmul(R(3.0)-iw, omw) - 2.0*dr*(w2+iw) - 2.0*(4.0*l2*w2 - R(C)) - dr2*w2 + K2*w2;
+  vec2 P3=cmul(2.0*iw-R(3.0), omw) + dr*(2.0*w2+iw) + 4.0*l2*w2 - R(C) + K3*w2;
+  vec2 P4=cmul(omw, omw) + K4*w2;
+
+  vec2 tiny=vec2(1e-30,0.0);
+  vec2 L1p0=vec2(1,0),L1p1=vec2(1,0),L1p2=vec2(1,0),L1p3=vec2(1,0);
+  vec2 L2p0=vec2(1,0),L2p1=vec2(1,0),L2p2=vec2(1,0), aPrev=vec2(1,0);
+  vec2 f=vec2(0.0), Cl=vec2(0.0), Dl=vec2(0.0);
+  for(int i=0;i<256;i++){
+    if(i>uDepth) break;
+    float n=float(i);
+    // raw 5-term coefficients A..E at this n
+    vec2 A = P0 + cmul(R(n+1.0)-iws, (R(n)-iws)+R(1.0));
+    vec2 B = P1 + cmul(R(n)-iws,     -4.0*(R(n-1.0)-iws) + (-2.0*omw + 2.0*dr*iw - R(4.0)));
+    vec2 Cc= P2 + cmul(R(n-1.0)-iws,  6.0*(R(n-2.0)-iws) + ( 6.0*omw - 4.0*dr*iw + R(6.0)));
+    vec2 Dd= P3 + cmul(R(n-2.0)-iws, -4.0*(R(n-3.0)-iws) + (-6.0*omw + 2.0*dr*iw - R(4.0)));
+    vec2 E = P4 + cmul(R(n-3.0)-iws, (R(n-4.0)-iws) + (2.0*omw + R(1.0)));
+    // level 1: eliminate the 5th band (index 4 = E)
+    vec2 L10,L11,L12,L13;
+    if(i>=3){ vec2 q=cdiv(E,L1p3);
+      L10=A; L11=B-cmul(L1p0,q); L12=Cc-cmul(L1p1,q); L13=Dd-cmul(L1p2,q);
+    } else { L10=A; L11=B; L12=Cc; L13=Dd; }
+    // level 2: eliminate the 4th band (index 3) -> 3-term alpha,beta,gamma
+    vec2 al,be,ga;
+    if(i>=2){ vec2 q=cdiv(L13,L2p2);
+      al=L10; be=L11-cmul(L2p0,q); ga=L12-cmul(L2p1,q);
+    } else { al=L10; be=L11; ga=L12; }
+    // Lentz step
+    if(i==0){ f=be; if(cabs(f)<1e-30) f=tiny; Cl=f; Dl=vec2(0.0); }
+    else{
+      vec2 an=-cmul(aPrev,ga), bn=be;
+      Dl=bn+cmul(an,Dl); if(cabs(Dl)<1e-30) Dl=tiny;
+      Cl=bn+cdiv(an,Cl); if(cabs(Cl)<1e-30) Cl=tiny;
+      Dl=cinv(Dl); f=cmul(f,cmul(Cl,Dl));
+    }
+    L1p0=L10;L1p1=L11;L1p2=L12;L1p3=L13; L2p0=al;L2p1=be;L2p2=ga; aPrev=al;
+  }
+  return log(cabs(f)+1e-30);
+}
+
+vec3 colormap(float t){                                  // t: 0 = QNM zero (bright) .. 1 = large
+  t = clamp(t,0.0,1.0);
+  vec3 c = mix(vec3(1.0,1.0,0.92), vec3(1.0,0.62,0.12), smoothstep(0.0,0.30,t));
+  c = mix(c, vec3(0.68,0.06,0.32), smoothstep(0.30,0.62,t));
+  c = mix(c, vec3(0.05,0.02,0.14), smoothstep(0.62,1.0,t));
+  return c;
+}
+
+void main(){
+  vec2 p = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;          // y in [-.5,.5]
+  float wr = uCenter.x + p.x*uScale;
+  float negImag = uCenter.y + p.y*uScale;                // screen-y = -Im(omega)
+  vec2 w = vec2(wr, -negImag);                            // omega = wr + i*Im
+
+  float lv = (uMetric==2) ? logCF_TN(w) : logCF3(w);     // log|CF|
+  // map log|CF| (small=QNM) to colour; wells (minima) show the modes
+  float t = clamp((lv + 1.0)/6.0, 0.0, 1.0);
+  vec3 col = colormap(t);
+
+  // faint integer gridlines + highlighted axes (in omega coords)
+  vec2 gg = abs(fract(vec2(wr,negImag)+0.5)-0.5) / fwidth(vec2(wr,negImag));
+  float grid = 1.0 - min(min(gg.x,gg.y),1.0);
+  col = mix(col, col*0.55+vec3(0.10), 0.35*grid);
+  float ax = 1.0 - min(min(abs(wr)/fwidth(wr), abs(negImag)/fwidth(negImag)),1.0);
+  col = mix(col, vec3(0.55,0.7,0.9), 0.5*ax);
+
+  outColor = vec4(col,1.0);
+}
+</script>
+<script>
+const cv=document.getElementById('c'), gl=cv.getContext('webgl2');
+if(!gl){document.body.innerHTML='<p style="color:#fff;padding:20px">WebGL2 not available.</p>';}
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o;}
+const vs=sh(gl.VERTEX_SHADER,`#version 300 es
+void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0,1);}`);
+const fs=sh(gl.FRAGMENT_SHADER,document.getElementById('fs').textContent);
+const prog=gl.createProgram();gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw gl.getProgramInfoLog(prog);
+gl.useProgram(prog);
+const U=n=>gl.getUniformLocation(prog,n);
+(()=>{const d=gl.getExtension('WEBGL_debug_renderer_info');
+  document.getElementById('gpu').textContent='GPU: '+(d?gl.getParameter(d.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER));})();
+
+const $=id=>document.getElementById(id);
+// complex-plane view (omega_r, -omega_i) at centre; scale = units across height
+let center=[1.0,0.9], scale=2.6;
+let drag=false,lx=0,ly=0,moved=0;
+function screenToOmega(cx,cy){const rect=cv.getBoundingClientRect();
+  const px=(cx-rect.width/2)/rect.height, py=(cy-rect.height/2)/rect.height;
+  return [center[0]+px*scale, -(center[1]-py*scale)];}          // [Re, Im]
+function omegaToScreen(w){const rect=cv.getBoundingClientRect();
+  const px=(w[0]-center[0])/scale, py=(center[1]+w[1])/scale;    // negImag = -Im
+  return [rect.width/2+px*rect.height, rect.height/2+py*rect.height];}
+cv.addEventListener('mousedown',e=>{drag=true;lx=e.clientX;ly=e.clientY;moved=0;});
+addEventListener('mouseup',e=>{const wasDrag=drag; drag=false;   // only snap if the press began on the canvas
+  if(wasDrag && moved<5) snap(e.clientX,e.clientY);});
+addEventListener('mousemove',e=>{
+  const rect=cv.getBoundingClientRect();
+  const px=(e.clientX-rect.width/2)/rect.height, py=(e.clientY-rect.height/2)/rect.height;
+  const wr=center[0]+px*scale, ni=center[1]-py*scale;
+  $('read').textContent=`ω = ${wr.toFixed(4)} ${ni>=0?'−':'+'} ${Math.abs(ni).toFixed(4)} i`;
+  if(!drag)return;
+  moved+=Math.abs(e.clientX-lx)+Math.abs(e.clientY-ly);
+  center[0]-=(e.clientX-lx)/rect.height*scale;
+  center[1]+=(e.clientY-ly)/rect.height*scale;
+  lx=e.clientX;ly=e.clientY;
+});
+cv.addEventListener('wheel',e=>{scale*=Math.exp(e.deltaY*0.0009);scale=Math.max(0.05,Math.min(20,scale));e.preventDefault();},{passive:false});
+
+// ---- touch: 1 finger = pan, 2 fingers = pinch-zoom, tap (no drag) = snap to nearest mode ----
+let pinchD=0;
+const tdist=e=>{const a=e.touches[0],b=e.touches[1];return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);};
+cv.addEventListener('touchstart',e=>{
+  if(e.touches.length===1){drag=true;lx=e.touches[0].clientX;ly=e.touches[0].clientY;moved=0;}
+  else{drag=false;pinchD=tdist(e);}
+},{passive:false});
+cv.addEventListener('touchmove',e=>{e.preventDefault();
+  if(e.touches.length===1&&drag){const t=e.touches[0],rect=cv.getBoundingClientRect();
+    moved+=Math.abs(t.clientX-lx)+Math.abs(t.clientY-ly);
+    center[0]-=(t.clientX-lx)/rect.height*scale;
+    center[1]+=(t.clientY-ly)/rect.height*scale;
+    lx=t.clientX;ly=t.clientY;
+  }else if(e.touches.length>=2){const d=tdist(e);
+    if(pinchD>0){scale*=Math.exp((pinchD-d)*0.006);scale=Math.max(0.05,Math.min(20,scale));}pinchD=d;}
+},{passive:false});
+cv.addEventListener('touchend',e=>{
+  if(e.touches.length===0){ if(drag&&moved<10){const t=e.changedTouches[0]; snap(t.clientX,t.clientY);} drag=false;pinchD=0; }
+  else if(e.touches.length===1){drag=true;pinchD=0;moved=99;lx=e.touches[0].clientX;ly=e.touches[0].clientY;}
+},{passive:false});
+
+function syncRows(){const m=+$('metric').value;
+  $('rowNut').style.display=m===2?'block':'none';
+  $('rowKerr').style.display=m===1?'block':'none';
+  $('rowSchw').style.display=m===0?'block':'none';}   // spin selector only exact for Schwarzschild
+$('field').onchange=()=>clearModes();
+$('metric').onchange=()=>{syncRows();clearModes();}; syncRows();
+for(const [id,fmt] of [['ell',v=>v],['nut',v=>(+v).toFixed(2)],['cas',v=>v],['spin',v=>(+v).toFixed(2)],['m',v=>v],['A',v=>(+v).toFixed(1)],['depth',v=>v]])
+  $(id).oninput=e=>{$('v'+id).textContent=fmt(e.target.value); clearModes();};
+
+// ---- complex continued fraction in JS (mirrors the shader) for root-finding ----
+const cadd=(a,b)=>[a[0]+b[0],a[1]+b[1]], csub=(a,b)=>[a[0]-b[0],a[1]-b[1]];
+const cmul=(a,b)=>[a[0]*b[0]-a[1]*b[1],a[0]*b[1]+a[1]*b[0]];
+const cinv=a=>{const d=a[0]*a[0]+a[1]*a[1];return [a[0]/d,-a[1]/d];};
+const cdiv=(a,b)=>cmul(a,cinv(b)), smul=(s,a)=>[s*a[0],s*a[1]], cabs=a=>Math.hypot(a[0],a[1]);
+const RR=x=>[x,0], CIj=[0,1];
+function coefsSchwJS(n,w,ell,eps){const miw=cmul([0,-1],w);
+  const al=cadd(cadd(cadd(RR(n*n),smul(n,cadd(smul(2,miw),RR(2)))),smul(2,miw)),RR(1));
+  const be=smul(-1,cadd(cadd(cadd(cadd(RR(2*n*n),smul(n,cadd(smul(8,miw),RR(2)))),smul(8,cmul(miw,miw))),smul(4,miw)),RR(ell*(ell+1)-eps)));
+  const ga=cadd(cadd(cadd(RR(n*n),smul(4*n,miw)),smul(4,cmul(miw,miw))),RR(-eps-1));return [al,be,ga];}
+function coefsKerrJS(n,w,a,m,A){const b=Math.sqrt(Math.max(1-4*a*a,1e-4));
+  const iw=cmul(CIj,w),w2=cmul(w,w),wm=csub(smul(0.5,w),RR(a*m)),g=smul(1/b,cadd(smul(4,w),smul(2,CIj)));
+  const c0=csub(csub(RR(1),iw),smul(2/b,cmul(CIj,wm)));
+  const c1=cadd(cadd(RR(-4),smul(2*(2+b),iw)),smul(4/b,cmul(CIj,wm)));
+  const c2=csub(csub(RR(3),smul(3,iw)),smul(2/b,cmul(CIj,wm)));
+  const c3=cadd(cadd(cadd(csub(csub(smul(4+2*b-a*a,w2),smul(2*a*m,w)),RR(1)),smul(-1,RR(A))),smul(2+b,iw)),cmul(g,wm));
+  const c4=csub(csub(csub(RR(1),smul(2,w2)),smul(3,iw)),cmul(g,wm));
+  const al=cadd(cadd(RR(n*n),smul(n,cadd(c0,RR(1)))),c0);
+  const be=cadd(cadd(RR(-2*n*n),smul(n,cadd(c1,RR(2)))),c3);
+  const ga=cadd(cadd(cadd(RR(n*n),smul(n,csub(c2,RR(3)))),c4),csub(RR(2),c2));return [al,be,ga];}
+function cf3(w){const m=+$('metric').value,d=+$('depth').value,tiny=[1e-30,0];
+  const co=n=> m===1? coefsKerrJS(n,w,+$('spin').value,+$('m').value,+$('A').value): coefsSchwJS(n,w,+$('ell').value, (+$('field').value)**2-1);
+  let [al,be,ga]=co(0),f=cabs(be)<1e-30?tiny:be,Cl=f,Dl=[0,0],aP=al;
+  for(let i=1;i<=d;i++){[al,be,ga]=co(i);const an=smul(-1,cmul(aP,ga)),bn=be;
+    Dl=cadd(bn,cmul(an,Dl));if(cabs(Dl)<1e-30)Dl=tiny;Cl=cadd(bn,cdiv(an,Cl));if(cabs(Cl)<1e-30)Cl=tiny;
+    Dl=cinv(Dl);f=cmul(f,cmul(Cl,Dl));aP=al;}return f;}
+function cfTN(w){const l=+$('nut').value,Cas=+$('cas').value,d=+$('depth').value;
+  const l2=l*l,M=0.5,rt=Math.sqrt(M*M+l2),rp=M+rt,rm=M-rt,rp2=rp*rp,rm2=rm*rm,s=(rp2+l2)/(2*rt),dr=rp-rm,dr2=dr*dr;
+  const iw=cmul(CIj,w),w2=cmul(w,w),iws=smul(s,iw),omw=csub(RR(1),iw);
+  const K1=(-2*rm*rp2-4*l2*l2-2*l2*rp*rm-4*l2*rp2)/dr2,K2=(rm2*rp2+2*rm2*rp+6*l2*l2+2*l2*rm2+4*l2*rm*rp+2*l2*rp2)/dr2;
+  const K3=(-2*rm*rm2*rp-4*l2*l2-4*l2*rm2-2*l2*rm*rp)/dr2,K4=(rm2*rm2+l2*l2+2*l2*rm2)/dr2;
+  const P0=smul((rp2+l2*l2+2*l2*rp2)/dr2,w2);
+  const P1=csub(cadd(cadd(iw,smul(dr,iw)),smul(K1+4*l2,w2)),cadd(RR(1),RR(Cas)));
+  const P2=csub(csub(csub(csub(cmul(csub(RR(3),iw),omw),smul(2*dr,cadd(w2,iw))),smul(2,csub(smul(4*l2,w2),RR(Cas)))),smul(dr2,w2)),smul(-K2,w2));
+  const P3=cadd(cadd(cadd(cmul(csub(smul(2,iw),RR(3)),omw),smul(dr,cadd(smul(2,w2),iw))),csub(smul(4*l2,w2),RR(Cas))),smul(K3,w2));
+  const P4=cadd(cmul(omw,omw),smul(K4,w2));
+  const tiny=[1e-30,0];
+  let L1p0=RR(1),L1p1=RR(1),L1p2=RR(1),L1p3=RR(1),L2p0=RR(1),L2p1=RR(1),L2p2=RR(1),aP=RR(1),f=[0,0],Cl=[0,0],Dl=[0,0];
+  for(let i=0;i<=d;i++){const n=i,t=x=>csub(RR(n+x),iws);
+    const A=cadd(P0,cmul(t(1),cadd(t(0),RR(1))));
+    const B=cadd(P1,cmul(t(0),cadd(smul(-4,t(-1)),cadd(cadd(smul(-2,omw),smul(2*dr,iw)),RR(-4)))));
+    const Cc=cadd(P2,cmul(t(-1),cadd(smul(6,t(-2)),cadd(csub(smul(6,omw),smul(4*dr,iw)),RR(6)))));
+    const Dd=cadd(P3,cmul(t(-2),cadd(smul(-4,t(-3)),cadd(cadd(smul(-6,omw),smul(2*dr,iw)),RR(-4)))));
+    const E=cadd(P4,cmul(t(-3),cadd(t(-4),cadd(smul(2,omw),RR(1)))));
+    let L10,L11,L12,L13;
+    if(i>=3){const q=cdiv(E,L1p3);L10=A;L11=csub(B,cmul(L1p0,q));L12=csub(Cc,cmul(L1p1,q));L13=csub(Dd,cmul(L1p2,q));}else{L10=A;L11=B;L12=Cc;L13=Dd;}
+    let al,be,ga;
+    if(i>=2){const q=cdiv(L13,L2p2);al=L10;be=csub(L11,cmul(L2p0,q));ga=csub(L12,cmul(L2p1,q));}else{al=L10;be=L11;ga=L12;}
+    if(i===0){f=cabs(be)<1e-30?tiny:be;Cl=f;Dl=[0,0];}else{const an=smul(-1,cmul(aP,ga)),bn=be;
+      Dl=cadd(bn,cmul(an,Dl));if(cabs(Dl)<1e-30)Dl=tiny;Cl=cadd(bn,cdiv(an,Cl));if(cabs(Cl)<1e-30)Cl=tiny;Dl=cinv(Dl);f=cmul(f,cmul(Cl,Dl));}
+    L1p0=L10;L1p1=L11;L1p2=L12;L1p3=L13;L2p0=al;L2p1=be;L2p2=ga;aP=al;}
+  return f;}
+const cf=w=> +$('metric').value===2? cfTN(w): cf3(w);
+function newton(w0){let w=w0.slice();for(let k=0;k<60;k++){const f=cf(w),h=[1e-5,0];
+  const fp=cdiv(csub(cf(cadd(w,h)),cf(csub(w,h))),[2e-5,0]);if(cabs(fp)<1e-30)break;
+  const st=cdiv(f,fp);w=csub(w,st);if(cabs(st)<1e-9)break;}
+  return cabs(cf(w))<1e-2? w: null;}
+
+// ---- click-snap, mode readout, ringdown plot, sonification ----
+let modes=[], selected=null;
+function clearModes(){modes=[];selected=null;$('mode').style.display='none';}
+function snap(cx,cy){const w=newton(screenToOmega(cx,cy));
+  if(!w || w[1]>0) return;                                        // QNM: Im(omega) < 0
+  modes=[w];                                                      // one marker at a time
+  selected=w;
+  const wr=w[0],wi=w[1], Q=Math.abs(wr/(2*wi)), tau=-1/wi;
+  $('mode').style.display='block';
+  $('mw').textContent=`${wr.toFixed(5)} − ${Math.abs(wi).toFixed(5)} i`;
+  $('mq').innerHTML=`Q = ${Q.toFixed(2)} · damping τ = ${tau.toFixed(2)} (2M=1)`;
+  drawWave(w);}
+function drawWave(w){const c=$('wave'),x=c.getContext('2d'),W=c.width,H=c.height,mid=H/2,wr=w[0],wi=w[1];
+  x.clearRect(0,0,W,H); const tEnd=Math.min(80,-6.0/wi);
+  x.strokeStyle='#233';x.beginPath();x.moveTo(0,mid);x.lineTo(W,mid);x.stroke();
+  x.strokeStyle='#a44';x.setLineDash([3,3]);
+  for(const sg of [1,-1]){x.beginPath();for(let i=0;i<=W;i++){const t=tEnd*i/W,y=mid-sg*Math.exp(wi*t)*(mid-4);i?x.lineTo(i,y):x.moveTo(i,y);}x.stroke();}
+  x.setLineDash([]);x.strokeStyle='#7cf';x.lineWidth=1.5;x.beginPath();
+  for(let i=0;i<=W;i++){const t=tEnd*i/W,h=Math.exp(wi*t)*Math.cos(wr*t),y=mid-h*(mid-4);i?x.lineTo(i,y):x.moveTo(i,y);}
+  x.stroke();x.lineWidth=1;}
+let actx;
+function ring(w){if(!w)return; actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+  const wr=w[0],wi=w[1], Q=Math.abs(wr/(2*wi));
+  const f=110+220*Math.abs(wr), tc=Math.min(3,Math.max(0.04,Q*0.12)), dur=Math.min(4,5*tc);
+  const o=actx.createOscillator(),g=actx.createGain(),t0=actx.currentTime;
+  o.type='sine';o.frequency.value=f;
+  g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(0.3,t0+0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  o.connect(g).connect(actx.destination);o.start(t0);o.stop(t0+dur+0.05);}
+$('ring').onclick=()=>ring(selected);
+function drawOverlay(){const c=$('ov'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
+  for(const m of modes){const [sx,sy]=omegaToScreen(m);const sel=m===selected;
+    x.strokeStyle=sel?'#8df':'#69a';x.lineWidth=sel?2:1.2;
+    x.beginPath();x.arc(sx,sy,sel?9:6,0,6.283);x.stroke();
+    x.beginPath();x.moveTo(sx-13,sy);x.lineTo(sx+13,sy);x.moveTo(sx,sy-13);x.lineTo(sx,sy+13);x.stroke();}}
+
+function resize(){cv.width=Math.round(innerWidth*Math.min(devicePixelRatio,1.5));
+  cv.height=Math.round(innerHeight*Math.min(devicePixelRatio,1.5));gl.viewport(0,0,cv.width,cv.height);
+  const ov=$('ov');ov.width=innerWidth;ov.height=innerHeight;}
+// ---- mobile: collapse the panel, wire toggle, fewer CF terms so the shader copes ----
+if(matchMedia('(pointer:coarse)').matches || innerWidth<640){
+  document.body.classList.add('mobile');
+  $('depth').value=50; $('vdepth').textContent='50';
+}
+$('panelToggle').onclick=()=>{ const open=document.body.classList.toggle('ui-open'); $('panelToggle').setAttribute('aria-expanded',open); };
+
+addEventListener('resize',resize);resize();
+
+function frame(){
+  gl.uniform2f(U('uRes'),cv.width,cv.height);
+  gl.uniform2f(U('uCenter'),center[0],center[1]);
+  gl.uniform1f(U('uScale'),scale);
+  gl.uniform1i(U('uMetric'),+$('metric').value);
+  gl.uniform1i(U('uEll'),+$('ell').value);
+  gl.uniform1i(U('uDepth'),+$('depth').value);
+  gl.uniform1i(U('uMazi'),+$('m').value);
+  gl.uniform1i(U('uField'),+$('field').value);
+  gl.uniform1f(U('uNut'),+$('nut').value);
+  gl.uniform1f(U('uCasimir'),+$('cas').value);
+  gl.uniform1f(U('uSpin'),+$('spin').value);
+  gl.uniform1f(U('uSepA'),+$('A').value);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  drawOverlay();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

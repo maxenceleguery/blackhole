@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gravitational-Wave Chirp — inspiral, merger, ringdown</title>
+<meta name="description" content="Interactive gravitational waveform of a binary black hole merger: post-Newtonian inspiral chirp, merger, and ringdown from the final Kerr quasinormal mode. Watch and hear the signal LIGO detects.">
+<style>
+  html,body{margin:0;height:100%;background:#06060a;overflow:hidden;font:13px/1.5 ui-monospace,monospace;color:#ccc}
+  canvas{display:block;width:100vw;height:100vh}
+  #ui{position:fixed;top:10px;left:10px;z-index:5;background:rgba(10,10,16,.82);padding:12px 14px;border:1px solid #333;border-radius:8px;backdrop-filter:blur(4px);max-width:250px}
+  #ui h2{font-size:13px;margin:0 0 8px;color:#fff;font-weight:600}
+  #ui label{display:block;margin:8px 0 2px;color:#9ad}
+  #ui input[type=range]{width:100%}
+  #ui .v{color:#fff;float:right}
+  #ui .hint{margin-top:10px;color:#667;font-size:11px}
+  #play{margin-top:10px;background:#1c2b3a;color:#9cf;border:1px solid #345;border-radius:5px;padding:6px 14px;cursor:pointer;font:inherit}
+  #play:hover{background:#24384c}
+  #stats{margin-top:10px;font-size:11px;color:#8ab;line-height:1.7}
+  #stats b{color:#cde}
+  /* shared nav */
+  #nav{position:fixed;top:10px;right:12px;z-index:10;display:flex;gap:6px;font:12px/1 ui-monospace,monospace}
+  #nav a{padding:6px 10px;background:rgba(10,10,16,.72);border:1px solid #333;border-radius:6px;color:#9ad;text-decoration:none;backdrop-filter:blur(4px)}
+  #nav a:hover{background:rgba(30,40,55,.85);color:#cde}
+  #nav a.active{color:#fff;border-color:#4a6a8a;background:rgba(28,43,58,.9)}
+  /* ---- mobile / touch ---- */
+  canvas{touch-action:none}
+  #ui input[type=range]{height:26px;accent-color:#4a6a8a}
+  #play{padding:9px 16px}
+  #panelToggle{position:fixed;z-index:11;display:none;
+    top:calc(10px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left));
+    padding:11px 14px;background:rgba(10,10,16,.82);border:1px solid #333;border-radius:8px;
+    color:#9ad;font:13px/1 ui-monospace,monospace;backdrop-filter:blur(4px);cursor:pointer}
+  body.mobile #panelToggle{display:block}
+  body.mobile #ui{display:none;max-width:min(330px,calc(100vw - 20px));max-height:72vh;overflow-y:auto;
+    top:calc(56px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left))}
+  body.mobile.ui-open #ui{display:block}
+  @media (max-width:560px){ #nav{flex-wrap:wrap;justify-content:flex-end;max-width:62vw} }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<nav id="nav">
+  <a href="index.html">◍ Black Hole</a>
+  <a href="qnm.html">〜 QNM</a>
+  <a href="gw.html" class="active">≈ Waves</a>
+  <a href="binary.html">◎ Binary</a>
+</nav>
+<button id="panelToggle" aria-expanded="false" aria-controls="ui">☰ controls</button>
+<div id="ui">
+  <h2>≈ Gravitational-wave chirp</h2>
+  <label>Mass 1 <span class="v" id="vm1">35 M☉</span></label>
+  <input type="range" id="m1" min="5" max="80" step="1" value="35">
+  <label>Mass 2 <span class="v" id="vm2">30 M☉</span></label>
+  <input type="range" id="m2" min="5" max="80" step="1" value="30">
+  <button id="play">▶ play</button>
+  <div id="stats"></div>
+  <div class="hint">Post-Newtonian inspiral → merger → ringdown (final Kerr QNM). Strain is the sound: play it.</div>
+</div>
+
+<script>
+const cv=document.getElementById('c'), ctx=cv.getContext('2d'), $=id=>document.getElementById(id);
+const TSUN=4.925491e-6;                                  // G Msun / c^3  (seconds)
+
+// ---- build the inspiral-merger-ringdown strain h(t) ----
+function build(m1,m2){
+  const SR=44100, M=m1+m2, mu=m1*m2/M, eta=mu/M;
+  const Mc=Math.pow(mu,0.6)*Math.pow(M,0.4);             // chirp mass (Msun)
+  const Msec=M*TSUN, Mcsec=Mc*TSUN;
+  // final black hole (approximate remnant fits)
+  const af=Math.min(0.99,Math.max(0, 2*Math.sqrt(3)*eta - 3.5171*eta*eta + 2.5763*eta*eta*eta));
+  const Mf=M*(1-0.05*Math.min(1,4*eta)), Mfsec=Mf*TSUN;
+  // ringdown from the l=m=2, n=0 Kerr QNM (Berti-Cardoso-Will fit)
+  const wR=(1.5251-1.1568*Math.pow(1-af,0.1292))/Mfsec;  // rad/s
+  const Q =0.7000+1.4187*Math.pow(1-af,-0.4990);
+  const frd=wR/(2*Math.PI), tau=2*Q/wR;
+  const fISCO=1/(Math.pow(6,1.5)*Math.PI*Msec);
+  const fmerge=Math.max(1.2*fISCO, 0.8*frd);             // inspiral sweeps up to ~merger frequency
+  const tauOf=f=>(5/256)*Math.pow(Mcsec,-5/3)*Math.pow(Math.PI*f,-8/3);
+  const fOfTau=t=>(1/Math.PI)*Math.pow(5/(256*t),3/8)*Math.pow(Mcsec,-5/8);
+  const dt=1/SR;
+  let f=fOfTau(Math.min(2.5,tauOf(15))), phase=0, T=0;    // start ~ up to 2.5 s before merger
+  const h=[],fr=[],orb=[];                                // orb = orbital phase (for the animation)
+  while(f<fmerge && T<3.5){
+    const A=Math.pow(f/fmerge,2/3);
+    h.push(A*Math.cos(phase)); fr.push(f); orb.push(phase/2);
+    const dfdt=(96/5)*Math.pow(Math.PI,8/3)*Math.pow(Mcsec,5/3)*Math.pow(f,11/3);
+    f+=dfdt*dt; phase+=2*Math.PI*f*dt; T+=dt;
+  }
+  const mergeIdx=h.length, phEnd=phase;
+  for(let tt=0; tt<8*tau; tt+=dt){                        // ringdown: damped QNM sinusoid
+    const A=Math.exp(-tt/tau);
+    h.push(A*Math.cos(2*Math.PI*frd*tt+phEnd)); fr.push(frd); orb.push(NaN);
+    if(A<0.0015) break;
+  }
+  return {h,fr,orb,SR,dt,mergeIdx,dur:h.length/SR,M,Mc,Mf,af,frd,Q,tau,fISCO,eta,fmerge};
+}
+
+let W=build(35,30);
+function refresh(){ W=build(+$('m1').value,+$('m2').value);
+  $('stats').innerHTML=
+     `chirp mass <b>${W.Mc.toFixed(1)} M☉</b><br>`
+    +`final BH <b>${W.Mf.toFixed(1)} M☉</b>, spin <b>${W.af.toFixed(2)}</b><br>`
+    +`ringdown <b>${W.frd.toFixed(0)} Hz</b>, Q <b>${W.Q.toFixed(1)}</b>, τ <b>${(W.tau*1e3).toFixed(1)} ms</b><br>`
+    +`merger ≈ <b>${W.fmerge.toFixed(0)} Hz</b> · signal <b>${W.dur.toFixed(2)} s</b>`; }
+$('m1').oninput=e=>{$('vm1').textContent=e.target.value+' M☉'; refresh();};
+$('m2').oninput=e=>{$('vm2').textContent=e.target.value+' M☉'; refresh();};
+refresh();
+
+// ---- audio: the strain IS the sound ----
+let actx, playing=false, startT=0;
+function play(){
+  actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+  const buf=actx.createBuffer(1,W.h.length,W.SR), d=buf.getChannelData(0);
+  for(let i=0;i<W.h.length;i++) d[i]=0.5*W.h[i];
+  const src=actx.createBufferSource(); src.buffer=buf; src.connect(actx.destination);
+  src.start(); startT=actx.currentTime; playing=true;
+  src.onended=()=>{playing=false;};
+}
+$('play').onclick=play;
+
+// ---- mobile: collapsible panel (2D viz, no camera to touch-control) ----
+if(matchMedia('(pointer:coarse)').matches || innerWidth<640) document.body.classList.add('mobile');
+$('panelToggle').onclick=()=>{ const open=document.body.classList.toggle('ui-open'); $('panelToggle').setAttribute('aria-expanded',open); };
+
+// ---- render ----
+function resize(){cv.width=innerWidth*Math.min(devicePixelRatio,2);cv.height=innerHeight*Math.min(devicePixelRatio,2);
+  ctx.setTransform(1,0,0,1,0,0);ctx.scale(cv.width/innerWidth,cv.height/innerHeight);}
+addEventListener('resize',resize);resize();
+
+function draw(){
+  const w=innerWidth,h=innerHeight;
+  ctx.clearRect(0,0,w,h); ctx.fillStyle='#06060a'; ctx.fillRect(0,0,w,h);
+  const pos = playing ? (actx.currentTime-startT) : 0;             // seconds played
+  const posIdx = Math.max(0, Math.min(W.h.length-1, Math.floor(pos*W.SR)));
+
+  // ---- waveform strip (hero). Warped time axis: inspiral 80% / ringdown 20% of width ----
+  const wy=h*0.52, amp=h*0.22, x0=70, x1=w-40, pw=x1-x0, split=0.80;
+  const xOf=idx=> idx<W.mergeIdx
+      ? x0 + split*pw*(idx/W.mergeIdx)
+      : x0 + split*pw + (1-split)*pw*((idx-W.mergeIdx)/(W.h.length-W.mergeIdx));
+  const mergeX=x0+split*pw;
+  ctx.font='11px ui-monospace';
+  ctx.strokeStyle='#553'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(mergeX,wy-amp*1.4); ctx.lineTo(mergeX,wy+amp*1.4); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle='#69a'; ctx.fillText('inspiral (chirp)',x0+8,wy-amp*1.4-6);
+  ctx.fillStyle='#996'; ctx.fillText('merger',mergeX-42,wy-amp*1.4-6);
+  ctx.fillStyle='#8ac'; ctx.fillText('ringdown',mergeX+14,wy-amp*1.4-6);
+  const N=Math.min(6000,W.h.length), step=W.h.length/N;
+  ctx.strokeStyle='#a44'; ctx.lineWidth=1;                         // amplitude envelope
+  for(const s of [1,-1]){ ctx.beginPath();
+    for(let i=0;i<N;i++){const idx=Math.floor(i*step); const x=xOf(idx),y=wy-s*envAt(idx)*amp; i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke(); }
+  ctx.strokeStyle='#7cf'; ctx.lineWidth=1.3; ctx.beginPath();      // strain
+  for(let i=0;i<N;i++){const idx=Math.floor(i*step);const x=xOf(idx),y=wy-W.h[idx]*amp; i?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+  ctx.stroke(); ctx.lineWidth=1;
+  if(playing){ const phx=xOf(posIdx);                             // playhead only while playing
+    ctx.strokeStyle='#fff'; ctx.globalAlpha=0.85; ctx.beginPath(); ctx.moveTo(phx,wy-amp*1.5); ctx.lineTo(phx,wy+amp*1.5); ctx.stroke(); ctx.globalAlpha=1; }
+  ctx.fillStyle='#678'; ctx.fillText(`strain h(t)     t = ${pos.toFixed(3)} s     f_GW = ${W.fr[posIdx].toFixed(0)} Hz`, x0-2, wy+amp*1.6+14);
+
+  // ---- binary orbit inset (top-right) ----
+  const cx=w-140, cy=160, R=90;
+  ctx.strokeStyle='#223'; ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.stroke();
+  ctx.fillStyle='#456'; ctx.fillText('inspiral',cx-24,cy-R-8);
+  if(posIdx<W.mergeIdx){
+    const ph=W.orb[posIdx], fr=W.fr[posIdx];
+    const sep=Math.max(0.07, Math.pow(fr/W.fr[0], -2/3));    // 1 at start, shrinks toward merger
+    const M1=+$('m1').value, M2=+$('m2').value, Mt=M1+M2;
+    const r1=sep*R*(M2/Mt), r2=sep*R*(M1/Mt);                 // each orbits the common centre of mass
+    ctx.fillStyle='#fc8'; ctx.beginPath(); ctx.arc(cx+Math.cos(ph)*r1, cy+Math.sin(ph)*r1, 4+5*(M1/80),0,6.283); ctx.fill();
+    ctx.fillStyle='#8cf'; ctx.beginPath(); ctx.arc(cx+Math.cos(ph+Math.PI)*r2, cy+Math.sin(ph+Math.PI)*r2, 4+5*(M2/80),0,6.283); ctx.fill();
+  } else {
+    ctx.fillStyle='#000'; ctx.strokeStyle='#7cf';
+    const a=Math.exp(-(pos-W.mergeIdx/W.SR)/W.tau);
+    ctx.beginPath(); ctx.arc(cx,cy,10,0,6.283); ctx.fill();
+    ctx.globalAlpha=a; ctx.beginPath(); ctx.arc(cx,cy,14+8*(1-a),0,6.283); ctx.stroke(); ctx.globalAlpha=1;
+    ctx.fillStyle='#8cf'; ctx.fillText('ringing',cx-20,cy+R+16);
+  }
+  requestAnimationFrame(draw);
+}
+function envAt(idx){ return idx<W.mergeIdx ? Math.pow(W.fr[idx]/W.fmerge,2/3)
+                                           : Math.exp(-(idx-W.mergeIdx)/W.SR/W.tau); }
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

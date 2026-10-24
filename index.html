@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Black Hole Simulator — Interactive WebGL Schwarzschild, Kerr &amp; Taub-NUT Ray Tracer</title>
+<meta name="description" content="A real-time, physically accurate black hole simulator in your browser. General-relativistic geodesic ray tracing of Schwarzschild, Kerr (rotating) and Taub-NUT spacetimes, with gravitational lensing, a Doppler-beamed accretion disk, photon ring and shadow. No install, runs on WebGL2.">
+<link rel="canonical" href="https://blackhole.maxenceleguery.net/">
+<meta name="robots" content="index, follow">
+<meta name="author" content="Maxence Leguéry">
+<meta name="theme-color" content="#0a0a10">
+<meta name="keywords" content="black hole simulator, gravitational lensing, Schwarzschild, Kerr black hole, Taub-NUT, general relativity, geodesic ray tracing, accretion disk, photon ring, black hole shadow, WebGL, interactive physics">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://blackhole.maxenceleguery.net/">
+<meta property="og:site_name" content="Black Hole Simulator">
+<meta property="og:title" content="Interactive Black Hole Simulator — Schwarzschild, Kerr & Taub-NUT">
+<meta property="og:description" content="Real-time general-relativistic ray tracing of black holes in the browser: gravitational lensing, Doppler-beamed accretion disk, photon ring and shadow. Switch between Schwarzschild, Kerr and Taub-NUT spacetimes.">
+<meta property="og:image" content="https://blackhole.maxenceleguery.net/preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Interactive Black Hole Simulator — Schwarzschild, Kerr & Taub-NUT">
+<meta name="twitter:description" content="Real-time general-relativistic ray tracing of black holes in the browser. No install.">
+<meta name="twitter:image" content="https://blackhole.maxenceleguery.net/preview.png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebApplication","name":"Black Hole Simulator",
+"url":"https://blackhole.maxenceleguery.net/","applicationCategory":"EducationalApplication",
+"operatingSystem":"Any (WebGL2 browser)","browserRequirements":"Requires WebGL2",
+"description":"Interactive general-relativistic black hole simulator: geodesic ray tracing of Schwarzschild, Kerr and Taub-NUT spacetimes with gravitational lensing, accretion disk, photon ring and shadow.",
+"author":{"@type":"Person","name":"Maxence Leguéry"},
+"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}
+</script>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px/1.5 ui-monospace,monospace;color:#ccc}
+  canvas{display:block;width:100vw;height:100vh}
+  #ui{position:fixed;top:10px;left:10px;background:rgba(10,10,16,.72);padding:12px 14px;border:1px solid #333;border-radius:8px;backdrop-filter:blur(4px);max-width:250px}
+  #ui h2{font-size:13px;margin:0 0 8px;color:#fff;font-weight:600}
+  .sr{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}
+  #ui label{display:block;margin:8px 0 2px;color:#9ad}
+  #ui input[type=range]{width:100%}
+  #ui .v{color:#fff;float:right}
+  #ui .hint{margin-top:10px;color:#667;font-size:11px}
+  #nav{position:fixed;top:10px;right:12px;z-index:10;display:flex;gap:6px;font:12px/1 ui-monospace,monospace}
+  #nav a{padding:6px 10px;background:rgba(10,10,16,.72);border:1px solid #333;border-radius:6px;color:#9ad;text-decoration:none;backdrop-filter:blur(4px)}
+  #nav a:hover{background:rgba(30,40,55,.85);color:#cde}
+  #nav a.active{color:#fff;border-color:#4a6a8a;background:rgba(28,43,58,.9)}
+  /* ---- mobile / touch ---- */
+  canvas{touch-action:none}                     /* our handlers own gestures; no browser pan/zoom */
+  #ui input[type=range]{height:26px;accent-color:#4a6a8a}   /* fatter, easier-to-hit thumb */
+  #panelToggle{position:fixed;z-index:11;display:none;
+    top:calc(10px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left));
+    padding:11px 14px;background:rgba(10,10,16,.82);border:1px solid #333;border-radius:8px;
+    color:#9ad;font:13px/1 ui-monospace,monospace;backdrop-filter:blur(4px);cursor:pointer}
+  body.mobile #panelToggle{display:block}
+  body.mobile #ui{display:none;max-width:min(330px,calc(100vw - 20px));max-height:72vh;overflow-y:auto;
+    top:calc(56px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left))}
+  body.mobile.ui-open #ui{display:block}
+  @media (max-width:560px){ #nav{flex-wrap:wrap;justify-content:flex-end;max-width:62vw} }
+</style>
+</head>
+<body>
+<header class="sr">
+  <h1>Interactive Black Hole Simulator (WebGL general-relativistic ray tracer)</h1>
+  <p>Real-time, physically based rendering of black hole spacetimes in the browser by integrating null geodesics through the curved metric. Choose Schwarzschild (non-rotating), Kerr (rotating, with frame dragging and an asymmetric shadow), or Taub-NUT (carrying a gravitomagnetic NUT charge). The simulation shows gravitational lensing of the background star field, a Doppler-beamed and gravitationally redshifted accretion disk, the photon ring and the black hole shadow. Drag to orbit the camera, scroll to zoom, and adjust the spin, NUT charge, field of view, integration quality and supersampling.</p>
+</header>
+<noscript><p style="color:#fff;padding:20px">This interactive black hole simulator needs JavaScript and a WebGL2-capable browser.</p></noscript>
+<canvas id="c"></canvas>
+<nav id="nav">
+  <a href="index.html" class="active">◍ Black Hole</a>
+  <a href="qnm.html">〜 QNM</a>
+  <a href="gw.html">≈ Waves</a>
+  <a href="binary.html">◎ Binary</a>
+</nav>
+<button id="panelToggle" aria-expanded="false" aria-controls="ui">☰ controls</button>
+<div id="ui">
+  <h2>◍ Geodesic ray tracer</h2>
+  <label>Spacetime</label>
+  <select id="metric" style="width:100%;background:#161620;color:#ccc;border:1px solid #333;border-radius:4px;padding:3px">
+    <option value="0">Schwarzschild / Kerr</option>
+    <option value="1">Taub-NUT</option>
+  </select>
+  <label>Spin a/M <span class="v" id="vspin">0.00</span></label>
+  <input type="range" id="spin" min="0" max="0.998" step="0.002" value="0">
+  <label>NUT charge l/M <span class="v" id="vnut">0.50</span></label>
+  <input type="range" id="nut" min="0" max="2" step="0.02" value="0.5">
+  <label>Field of view <span class="v" id="vfov">55°</span></label>
+  <input type="range" id="fov" min="25" max="90" step="1" value="55">
+  <label>Steps (quality) <span class="v" id="vsteps">240</span></label>
+  <input type="range" id="steps" min="80" max="600" step="20" value="240">
+  <label>Resolution / SSAA <span class="v" id="vres">125%</span></label>
+  <input type="range" id="res" min="25" max="200" step="5" value="125">
+  <label><input type="checkbox" id="disk" checked> accretion disk</label>
+  <label><input type="checkbox" id="spinlbl" checked> auto-orbit</label>
+  <div class="hint">drag / 1-finger = look · wheel / pinch = zoom<br>Kerr: a=0 → Schwarzschild · a&gt;0 → Kerr<br>Taub-NUT: l = gravitomagnetic (NUT) charge</div>
+  <div class="hint" id="photon" style="color:#8bd"></div>
+  <div class="hint" id="gpu">GPU: …</div>
+  <div class="hint" id="fps"></div>
+</div>
+<script id="fs" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+out vec4 outColor;
+
+uniform vec2  uRes;
+uniform vec3  uCamPos, uCamRight, uCamUp, uCamFwd;
+uniform float uTanFov, uSpin, uTime, uDiskIn, uDiskOut, uNut;
+uniform int   uSteps, uMetric, uDisk;
+
+// ------------------------------------------------------------------
+// METRIC: inverse metric g^{mu nu} at spacetime point X=(t,x,y,z).
+// Kerr-Schild Cartesian form, M=1, signature (-+++).
+// a=0 -> Schwarzschild, 0<a<1 -> Kerr. One function, two black holes.
+// Adding a new spacetime = add a branch returning its g^{mu nu}.
+// ------------------------------------------------------------------
+// Kerr-Schild primitives: scalar f and RAISED null vector l^mu (M=1, l^0=-1).
+// a=0 -> Schwarzschild, 0<a<1 -> Kerr. This is the ONLY work in the hot loop.
+// A new spacetime supplies its own primitives (Taub-NUT is NOT Kerr-Schild --
+// NUT charge -> Misner string, needs its own f/l. See bibnum.ensta.fr/9537).
+void ksPrim(vec4 X, out float f, out vec4 lup){
+  float a=uSpin, a2=a*a; vec3 P=X.yzw; float rho2=dot(P,P);
+  float r2=0.5*((rho2-a2)+sqrt((rho2-a2)*(rho2-a2)+4.0*a2*P.z*P.z)); r2=max(r2,1e-6);
+  float r=sqrt(r2);
+  f=2.0*r2*r/(r2*r2+a2*P.z*P.z);                        // 2 M r^3 / (r^4 + a^2 z^2)
+  lup=vec4(-1.0, (r*P.x+a*P.y)/(r2+a2), (r*P.y-a*P.x)/(r2+a2), P.z/r);
+}
+// Full inverse metric g^{mu nu} = eta - f l^mu l^nu. Used ONCE per pixel (null
+// solve) -- never in the loop, so the 4x4 build cost here doesn't matter.
+mat4 invMetric(vec4 X){ float f; vec4 lup; ksPrim(X,f,lup);
+  mat4 eta=mat4(-1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1.);
+  return eta - f*outerProduct(lup,lup); }
+float quad(mat4 g, vec4 p){ return dot(p, g*p); }
+
+// Geodesic RHS, matrix-free.  H = 1/2( eta^{ab}pa pb - f phi^2 ),  phi = l^a p_a.
+//   dx^mu = dH/dp_mu = eta^{mu nu}p_nu - f phi l^mu     (analytic, exact)
+//   dp_k  = -dH/dx^k ; the eta(p,p) term is x-independent so it cancels in the
+//   difference -> each perturbed eval is ksPrim + one dot. No 4x4 anywhere.
+// NB: kept as a forward finite difference on purpose. The exact analytic gradient
+// (validated to 1e-12) renders the true near-chaotic sensitivity of rays wrapping
+// the photon sphere and crossing the disk plane as a hard stipple; the h=1e-3
+// difference mildly regularizes that under-resolved region. See scratchpad renders.
+void rhs(vec4 x, vec4 p, out vec4 dx, out vec4 dp){
+  float f; vec4 lup; ksPrim(x, f, lup);
+  float phi = dot(lup, p), fp = f*phi*phi;
+  dx = vec4(-p.x, p.yzw) - f*phi*lup;
+  const float h = 1e-3;
+  float f2; vec4 l2; float ph;
+  dp = vec4(0.0);
+  ksPrim(x+vec4(0.,h,0.,0.), f2,l2); ph=dot(l2,p); dp.y = 0.5*(f2*ph*ph - fp)/h;
+  ksPrim(x+vec4(0.,0.,h,0.), f2,l2); ph=dot(l2,p); dp.z = 0.5*(f2*ph*ph - fp)/h;
+  ksPrim(x+vec4(0.,0.,0.,h), f2,l2); ph=dot(l2,p); dp.w = 0.5*(f2*ph*ph - fp)/h;
+}
+
+float ksRadius(vec3 P){
+  float a2 = uSpin*uSpin, rho2 = dot(P,P);
+  return sqrt(0.5*((rho2-a2)+sqrt((rho2-a2)*(rho2-a2)+4.*a2*P.z*P.z)));
+}
+
+// ---- hashes & value noise ---------------------------------------
+float hash13(vec3 p){ p=fract(p*.1031); p+=dot(p,p.zyx+31.32); return fract((p.x+p.y)*p.z); }
+vec3  hash33(vec3 p){ p=fract(p*vec3(.1031,.1030,.0973));
+  p+=dot(p,p.yxz+33.33); return fract((p.xxy+p.yxx)*p.zyx); }
+float vnoise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=hash13(vec3(i,0.0)),            b=hash13(vec3(i+vec2(1,0),0.0));
+  float c=hash13(vec3(i+vec2(0,1),0.0)),  d=hash13(vec3(i+vec2(1,1),0.0));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*vnoise(p); p=p*2.02+1.7; a*=0.5; } return s; }
+
+// normalized temperature -> RGB (cheap blackbody-ish ramp; hotter = bluer/whiter)
+vec3 blackbody(float t){ t=clamp(t,0.0,1.4);
+  vec3 c = mix(vec3(1.0,0.28,0.06), vec3(1.0,0.72,0.34), smoothstep(0.0,0.45,t));
+  c = mix(c, vec3(1.0,0.98,0.92), smoothstep(0.4,0.85,t));
+  c = mix(c, vec3(0.75,0.86,1.0), smoothstep(0.85,1.3,t));
+  return c;
+}
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }
+
+// ---- starfield + faint nebula -----------------------------------
+vec3 background(vec3 d){
+  d = normalize(d);
+  // ray-differential footprint of this pixel's exit direction. Called from main()
+  // under uniform control flow, so dFdx/dFdy are valid: where neighbouring rays
+  // diverge (photon ring / lensed wrap-around) the footprint explodes and the
+  // high-frequency star layers fade out -> no aliasing rings, no shimmer.
+  float fw = max(length(dFdx(d)), length(dFdy(d)));
+  float n = fbm(d.xy*3.0 + d.z*2.0) * fbm(d.yz*2.0 - d.x);        // low-freq clouds
+  vec3 col = mix(vec3(0.006,0.008,0.016), vec3(0.03,0.02,0.06), n*n)
+           + vec3(0.05,0.03,0.08)*pow(max(0.0,1.0-abs(d.z)),6.0)*n; // galactic band
+  for(float k=0.0;k<2.0;k++){                                      // round stars, 2 densities
+    float sc = 130.0*exp2(k);
+    vec3 gv = fract(d*sc)-0.5, rnd = hash33(floor(d*sc));
+    float present = step(0.96, rnd.x);
+    float rad = length(gv) + (1.0-rnd.y)*0.35;
+    float star = pow(present*smoothstep(0.55,0.0,rad), 2.0) * (0.4+rnd.z);
+    float lod = smoothstep(1.0, 0.35, fw*sc);                     // fade layer as its cells go sub-pixel
+    col += mix(vec3(0.7,0.8,1.0), vec3(1.0,0.8,0.55), rnd.z) * star * lod;
+  }
+  col *= smoothstep(0.25, 0.04, fw);   // deep-winding rays (huge footprint) fade to black:
+  return col;                          // kills the lensed-background moire filling the shadow
+}
+
+// ---- accretion disk: emissive turbulent gas ---------------------
+// HDR emission; writes per-crossing opacity to `alpha`.
+vec3 diskSample(vec3 pos, vec3 photonDir, out float alpha){
+  float rr = length(pos.xy);
+  float tRad = clamp((rr-uDiskIn)/(uDiskOut-uDiskIn), 0.0, 1.0);
+  float env  = smoothstep(0.0,0.12,tRad) * (1.0-smoothstep(0.75,1.0,tRad)); // soft edges
+  // turbulent density in a CO-ROTATING Cartesian frame: differential rotation
+  // (inner faster) shears the noise into spirals, and Cartesian sampling has NO
+  // angular seam -- atan()/log(r) wrapped at +-pi, which caused the 360 offset.
+  float Omega = 1.0/(pow(rr,1.5)+uSpin);                 // Keplerian angular velocity
+  float phi   = Omega*uTime*3.0, cs=cos(phi), sn=sin(phi);
+  vec2  co = vec2(cs*pos.x + sn*pos.y, -sn*pos.x + cs*pos.y);  // de-rotate to co-moving frame
+  float dens = pow(clamp(fbm(co*0.9 + 0.7*fbm(co*0.5))*1.5, 0.0, 1.0), 1.6);   // warped wisps
+  // relativistic Doppler + gravitational redshift (Keplerian prograde orbit)
+  float v    = clamp(sqrt(1.0/max(rr-2.0,0.3)), 0.0, 0.95);
+  float gam  = inversesqrt(1.0-v*v);
+  float dop  = 1.0/(gam*(1.0 - v*dot(normalize(vec3(-pos.y,pos.x,0.0)), normalize(-photonDir))));
+  float shift= dop*sqrt(max(1.0-2.0/rr,0.05));            // observed/emitted frequency
+  vec3  col  = blackbody(((1.0-tRad)*0.9+0.15)*shift*1.15);
+  alpha = clamp(env*dens*1.3, 0.0, 1.0);
+  return col * env*dens*pow(shift,4.0) * 4.0;             // I ~ g^4 relativistic beaming
+}
+
+// ------------------------------------------------------------------
+// Taub-NUT (spherical coords X=(t,r,theta,phi); M=1, NUT charge l=uNut).
+// NOT Kerr-Schild: from ds^2 = -f (dt + 2l cos th dphi)^2 + dr^2/f
+//   + (r^2+l^2)(dth^2 + sin^2 th dphi^2),  f = (r^2 - 2r - l^2)/(r^2+l^2).
+// The (dt + 2l cos th dphi) term is gravitomagnetic -> Misner string on the axis.
+// Inverse metric is analytic; l=0 reduces exactly to Schwarzschild in spherical.
+// ------------------------------------------------------------------
+mat4 invMetricTN(vec4 X){
+  float l = uNut, r = X.y, th = X.z;
+  float s = max(sin(th), 1e-3), c = cos(th);
+  float R2 = r*r + l*l, s2 = s*s;
+  float f  = (r*r - 2.0*r - l*l)/R2;               // M = 1
+  float N  = 2.0*l*(1.0 - c);                       // NUT potential 2l(1-cos th): Misner string on
+  mat4 g = mat4(0.0);                               // theta=pi (south) only, north pole regular (Leguery eq 3.1)
+  g[0][0] = -1.0/f + N*N/(R2*s2);                  // g^tt
+  g[1][1] = f;                                     // g^rr
+  g[2][2] = 1.0/R2;                                // g^thth
+  g[3][3] = 1.0/(R2*s2);                           // g^phph
+  float gtph = -N/(R2*s2);                         // g^t phi  (NUT frame dragging)
+  g[0][3] = gtph; g[3][0] = gtph;
+  return g;
+}
+void rhsTN(vec4 x, vec4 p, out vec4 dx, out vec4 dp){
+  mat4 g = invMetricTN(x); dx = g*p;
+  float q0 = quad(g,p); const float h = 1e-3; dp = vec4(0.0);   // static in t,phi -> only r,theta
+  dp.y = -0.5*(quad(invMetricTN(x+vec4(0.,h,0.,0.)),p) - q0)/h;
+  dp.z = -0.5*(quad(invMetricTN(x+vec4(0.,0.,h,0.)),p) - q0)/h;
+}
+
+vec3 sphToCart(vec4 st){ float s=sin(st.z); return st.y*vec3(s*cos(st.w), s*sin(st.w), cos(st.z)); }
+
+// Kerr-Schild trace (Schwarzschild a=0 / Kerr), Cartesian coordinates.
+// Returns disk emission; the escaped-ray background is shaded in main() (out bgDir/bgW)
+// so its dFdx-based anti-aliasing runs under uniform control flow, not inside this loop.
+// Fade the strongly-lensed disk images that alias into rings/dots inside the shadow.
+// The tell is closest approach to the photon sphere (~1.5 rHor): edge/higher-order rays
+// graze it and are hugely magnified (undersampled -> aliasing), while the direct disk
+// and the over-top arc stay well outside it. `rmin` = smallest radius the ray reached
+// before this crossing. Derivative-free -> identical on every GPU.
+float diskAA(float rmin, float rHor){
+  return smoothstep(1.5*rHor, 1.95*rHor, rmin);
+}
+vec3 traceKS(vec3 dir, out vec3 bgDir, out float bgW){
+  vec4 x = vec4(0.0, uCamPos);
+  mat4 g = invMetric(x);
+  vec4 p = vec4(0.0, dir);
+  float A=g[0][0], B=2.0*(g[0][1]*p.y+g[0][2]*p.z+g[0][3]*p.w), C=quad(g, vec4(0.0,p.yzw));
+  float disc=max(B*B-4.0*A*C,0.0);
+  p.x=(-B-sqrt(disc))/(2.0*A);
+  if(dot((g*p).yzw, dir) < 0.0) p.x=(-B+sqrt(disc))/(2.0*A);
+  vec3 col=vec3(0.0); float T=1.0, turn=0.0, rmin=1e9; vec3 pdir=dir;
+  bgW=0.0; bgDir=dir;
+  float a=uSpin, rHor=1.0+sqrt(max(1.0-a*a,0.0));
+  for(int i=0;i<600;i++){
+    if(i>=uSteps) break;
+    float r = ksRadius(x.yzw); rmin=min(rmin,r);
+    if(r < rHor+0.02){ T=0.0; break; }
+    if(r > 60.0){ bgDir=normalize((invMetric(x)*p).yzw); bgW=T*exp(-max(turn-3.14159,0.0)); T=0.0; break; }
+    float dl = clamp(0.08*(r-rHor)+0.025, 0.025, 3.0);
+    float z0 = x.w;
+    // RK4 everywhere: capture-vs-escape near the critical impact parameter is chaotic,
+    // so any lower-order step in the wrap region flips some rays and stipples the ring.
+    vec4 k1x,k1p,k2x,k2p,k3x,k3p,k4x,k4p;
+    rhs(x,p,k1x,k1p); rhs(x+.5*dl*k1x,p+.5*dl*k1p,k2x,k2p);
+    rhs(x+.5*dl*k2x,p+.5*dl*k2p,k3x,k3p); rhs(x+dl*k3x,p+dl*k3p,k4x,k4p);
+    vec4 xn = x + dl/6.0*(k1x+2.0*k2x+2.0*k3x+k4x);
+    vec4 pn = p + dl/6.0*(k1p+2.0*k2p+2.0*k3p+k4p);
+    if(uDisk==1 && z0*xn.w < 0.0){
+      float f=z0/(z0-xn.w); vec3 hit=mix(x.yzw,xn.yzw,f); float rd=length(hit.xy);
+      if(rd>uDiskIn && rd<uDiskOut){ float al; vec3 em=diskSample(hit,(invMetric(x)*p).yzw,al);
+        float aa=diskAA(rmin,rHor);                                  // fade undersampled lensed images -> black shadow
+        col+=T*em*aa; T*=(1.0-al*aa); if(T<0.02) break; }
+    }
+    vec3 ndir=normalize(xn.yzw-x.yzw); turn+=acos(clamp(dot(pdir,ndir),-1.0,1.0)); pdir=ndir;
+    x=xn; p=pn;
+  }
+  return col;
+}
+
+// Taub-NUT trace: geodesics run in spherical coords, transformed in/out at the boundaries.
+vec3 traceTN(vec3 dir, out vec3 bgDir, out float bgW){
+  vec3 P0=uCamPos; float r0=length(P0);
+  float th0=acos(clamp(P0.z/r0,-1.0,1.0)), ph0=atan(P0.y,P0.x);
+  float s0=sin(th0),c0=cos(th0),cp=cos(ph0),sp=sin(ph0);
+  vec3 er=vec3(s0*cp,s0*sp,c0), et=vec3(r0*c0*cp,r0*c0*sp,-r0*s0), ef=vec3(-r0*s0*sp,r0*s0*cp,0.0);
+  vec4 x=vec4(0.0, r0, th0, ph0);
+  vec4 p=vec4(0.0, dot(dir,er), dot(dir,et), dot(dir,ef));   // Cartesian dir -> spherical covariant p
+  mat4 g=invMetricTN(x);
+  float A=g[0][0], B=2.0*g[0][3]*p.w, C=quad(g, vec4(0.0,p.y,p.z,p.w));
+  float disc=max(B*B-4.0*A*C,0.0);
+  p.x=(-B-sqrt(disc))/(2.0*A);
+  { vec4 v=g*p; if(dot(v.y*er+v.z*et+v.w*ef, dir) < 0.0) p.x=(-B+sqrt(disc))/(2.0*A); } // into-scene
+  float l=uNut, rHor=1.0+sqrt(1.0+l*l);                      // r_+ = M + sqrt(M^2 + l^2)
+  vec3 col=vec3(0.0); float T=1.0, turn=0.0, rmin=1e9; vec3 pdir=dir;
+  bgW=0.0; bgDir=dir;
+  for(int i=0;i<600;i++){
+    if(i>=uSteps) break;
+    float r=x.y, th=x.z; rmin=min(rmin,r);
+    if(r < rHor+0.02){ T=0.0; break; }
+    if(r > 60.0){
+      vec4 v=invMetricTN(x)*p;
+      float s=sin(th),c=cos(th),cph=cos(x.w),sph=sin(x.w);
+      vec3 er2=vec3(s*cph,s*sph,c), et2=vec3(r*c*cph,r*c*sph,-r*s), ef2=vec3(-r*s*sph,r*s*cph,0.0);
+      bgDir=normalize(v.y*er2+v.z*et2+v.w*ef2); bgW=T*exp(-max(turn-3.14159,0.0)); T=0.0; break;
+    }
+    float dl=clamp(0.08*(r-rHor)+0.025, 0.025, 3.0);
+    vec4 k1x,k1p,k2x,k2p,k3x,k3p,k4x,k4p;          // RK4 everywhere (see traceKS note)
+    rhsTN(x,p,k1x,k1p); rhsTN(x+.5*dl*k1x,p+.5*dl*k1p,k2x,k2p);
+    rhsTN(x+.5*dl*k2x,p+.5*dl*k2p,k3x,k3p); rhsTN(x+dl*k3x,p+dl*k3p,k4x,k4p);
+    vec4 xn=x+dl/6.0*(k1x+2.0*k2x+2.0*k3x+k4x);
+    vec4 pn=p+dl/6.0*(k1p+2.0*k2p+2.0*k3p+k4p);
+    if(uDisk==1){                                            // equatorial plane theta = pi/2
+      float d0=x.z-1.5707963, d1=xn.z-1.5707963;
+      if(d0*d1 < 0.0){
+        float fr=d0/(d0-d1), rr=mix(x.y,xn.y,fr), ph=mix(x.w,xn.w,fr);
+        if(rr>uDiskIn && rr<uDiskOut){
+          vec3 hit=vec3(rr*cos(ph), rr*sin(ph), 0.0);
+          vec4 v=invMetricTN(x)*p;
+          float s=sin(x.z),c=cos(x.z),cph=cos(x.w),sph=sin(x.w);
+          vec3 er2=vec3(s*cph,s*sph,c), et2=vec3(x.y*c*cph,x.y*c*sph,-x.y*s), ef2=vec3(-x.y*s*sph,x.y*s*cph,0.0);
+          float al; vec3 em=diskSample(hit, normalize(v.y*er2+v.z*et2+v.w*ef2), al);
+          float aa=diskAA(rmin,rHor);                                // fade undersampled lensed images -> black shadow
+          col+=T*em*aa; T*=(1.0-al*aa); if(T<0.02) break;
+        }
+      }
+    }
+    vec3 nd = normalize(sphToCart(xn) - sphToCart(x));       // true Cartesian bending, as in KS
+    turn += acos(clamp(dot(pdir,nd),-1.0,1.0)); pdir = nd;
+    x=xn; p=pn;
+  }
+  return col;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy/uRes)*2.0 - 1.0;
+  float aspect = uRes.x/uRes.y;
+  vec3 dir = normalize(uCamFwd + (uv.x*aspect*uTanFov)*uCamRight + (uv.y*uTanFov)*uCamUp);
+  vec3 bgDir; float bgW;
+  vec3 col = (uMetric==1) ? traceTN(dir, bgDir, bgW) : traceKS(dir, bgDir, bgW);
+  col += bgW * background(bgDir);   // background shaded here -> valid dFdx for star LOD
+  outColor = vec4(col*1.3, 1.0);   // linear HDR (exposure only); bloom + tonemap in present pass
+}
+</script>
+<script>
+const cv = document.getElementById('c');
+const gl = cv.getContext('webgl2', {antialias:false});
+if(!gl){ document.body.innerHTML='<p style="color:#fff;padding:20px">WebGL2 not available.</p>'; }
+
+function sh(type,src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s); return s; }
+const vs = sh(gl.VERTEX_SHADER, `#version 300 es
+void main(){ vec2 p=vec2((gl_VertexID<<1)&2, gl_VertexID&2); gl_Position=vec4(p*2.0-1.0,0,1);} `);
+function makeProg(src){ const f=sh(gl.FRAGMENT_SHADER,src);
+  const pr=gl.createProgram(); gl.attachShader(pr,vs); gl.attachShader(pr,f); gl.linkProgram(pr);
+  if(!gl.getProgramParameter(pr,gl.LINK_STATUS)) throw gl.getProgramInfoLog(pr); return pr; }
+const progScene = makeProg(document.getElementById('fs').textContent);
+// Separable Gaussian blur + optional bright-pass (folds into the horizontal pass).
+const progBlur = makeProg(`#version 300 es
+precision highp float;
+uniform sampler2D uTex; uniform vec2 uInvOut, uStep; uniform float uBright;
+out vec4 o;
+float gw(int i){ i=i<0?-i:i; return i==0?0.227:i==1?0.1945:i==2?0.1216:i==3?0.054:0.0162; }
+void main(){ vec2 uv=gl_FragCoord.xy*uInvOut; vec3 c=vec3(0.0);
+  for(int i=-4;i<=4;i++){ vec3 s=texture(uTex,uv+uStep*float(i)).rgb;
+    if(uBright>0.5) s=max(s-1.0,0.0);                 // only bloom what's brighter than ~white
+    c+=s*gw(i); } o=vec4(c,1.0); }`);
+// Composite: scene + bloom, then ACES tonemap + gamma (moved here from the scene shader).
+const progPresent = makeProg(`#version 300 es
+precision highp float;
+uniform sampler2D uScene, uBloom; uniform vec2 uInvOut; uniform float uBloomStr; uniform int uSS;
+out vec4 o;
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }
+void main(){ vec2 uv=gl_FragCoord.xy*uInvOut;    // uInvOut = 1/display res
+  // box-average the supersampled scene over this output pixel's footprint (SSAA resolve)
+  vec3 sc=vec3(0.0); float n=0.0;
+  for(int y=0;y<3;y++){ if(y>=uSS) break;
+    for(int x=0;x<3;x++){ if(x>=uSS) break;
+      vec2 off=((vec2(float(x),float(y))+0.5)/float(uSS)-0.5)*uInvOut;
+      sc+=texture(uScene,uv+off).rgb; n+=1.0; } }
+  vec3 c = sc/n + uBloomStr*texture(uBloom,uv).rgb;
+  o = vec4(pow(aces(c), vec3(1.0/2.2)), 1.0); }`);
+const uni = (pr,n)=>gl.getUniformLocation(pr,n);
+
+// HDR float render targets for the bloom pipeline.
+gl.getExtension('EXT_color_buffer_float');
+let texScene,fboScene,texB0,texB1,fboB0,fboB1,bloomW,bloomH,ssW,ssH;
+function mkTex(w,h){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null);
+  for(const p of [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_2D,p,gl.LINEAR);
+  for(const p of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T]) gl.texParameteri(gl.TEXTURE_2D,p,gl.CLAMP_TO_EDGE);
+  return t; }
+function mkFbo(t){ const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0); return f; }
+function buildTargets(){
+  [texScene,texB0,texB1].forEach(t=>t&&gl.deleteTexture(t));
+  [fboScene,fboB0,fboB1].forEach(f=>f&&gl.deleteFramebuffer(f));
+  texScene=mkTex(ssW,ssH); fboScene=mkFbo(texScene);                 // supersampled render
+  bloomW=Math.max(1,ssW>>1); bloomH=Math.max(1,ssH>>1);              // bloom at half of that
+  texB0=mkTex(bloomW,bloomH); fboB0=mkFbo(texB0);
+  texB1=mkTex(bloomW,bloomH); fboB1=mkFbo(texB1);
+}
+
+// Report the REAL renderer so you can see iGPU / llvmpipe (software) vs the Nvidia.
+(()=>{ const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+  const r = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  const soft = /llvmpipe|software|swiftshader|softpipe/i.test(r);
+  const igpu = /intel|mesa|amd|radeon(?!.*RX)/i.test(r) && !/nvidia|rtx|geforce/i.test(r);
+  const el=document.getElementById('gpu');
+  el.innerHTML = 'GPU: '+r;
+  if(soft) el.innerHTML += '<br><b style="color:#f55">⚠ SOFTWARE RENDERING — no GPU. This is your problem.</b>';
+  else if(igpu) el.innerHTML += '<br><b style="color:#fa5">⚠ integrated GPU, not the Nvidia.</b>';
+  else el.innerHTML += '<br><span style="color:#5d5">✓ discrete GPU</span>';
+})();
+
+// ---- camera (orbit about z = spin axis; disk lies in x-y plane) ----
+let yaw=0.6, pitch=1.42, radius=28, autoOrbit=true, dragging=false, lx=0, ly=0;
+cv.addEventListener('mousedown', e=>{dragging=true; lx=e.clientX; ly=e.clientY;});
+addEventListener('mouseup', ()=>dragging=false);
+addEventListener('mousemove', e=>{ if(!dragging)return;
+  yaw   -= (e.clientX-lx)*0.005; pitch += (e.clientY-ly)*0.005;
+  pitch = Math.max(0.05, Math.min(Math.PI-0.05, pitch));
+  lx=e.clientX; ly=e.clientY; autoOrbit=false; document.getElementById('spinlbl').checked=false; });
+cv.addEventListener('wheel', e=>{ radius*=Math.exp(e.deltaY*0.0008); radius=Math.max(4,Math.min(120,radius)); e.preventDefault(); },{passive:false});
+
+// ---- touch: 1 finger = orbit, 2 fingers = pinch-zoom (mirrors mouse/wheel) ----
+let pinchD=0;
+const tdist=e=>{ const a=e.touches[0],b=e.touches[1]; return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); };
+cv.addEventListener('touchstart', e=>{
+  if(e.touches.length===1){ dragging=true; lx=e.touches[0].clientX; ly=e.touches[0].clientY; }
+  else { dragging=false; pinchD=tdist(e); }               // 2+ fingers -> pinch, suspend orbit
+},{passive:false});
+cv.addEventListener('touchmove', e=>{ e.preventDefault();
+  if(e.touches.length===1 && dragging){
+    const t=e.touches[0];
+    yaw -= (t.clientX-lx)*0.005; pitch += (t.clientY-ly)*0.005;
+    pitch = Math.max(0.05, Math.min(Math.PI-0.05, pitch));
+    lx=t.clientX; ly=t.clientY; autoOrbit=false; document.getElementById('spinlbl').checked=false;
+  } else if(e.touches.length>=2){
+    const d=tdist(e);
+    if(pinchD>0){ radius*=Math.exp((pinchD-d)*0.006); radius=Math.max(4,Math.min(120,radius)); } // spread=zoom in
+    pinchD=d;
+  }
+},{passive:false});
+cv.addEventListener('touchend', e=>{
+  if(e.touches.length===0){ dragging=false; pinchD=0; }
+  else if(e.touches.length===1){ dragging=true; pinchD=0; lx=e.touches[0].clientX; ly=e.touches[0].clientY; } // 2->1: reseat, no jump
+},{passive:false});
+
+const $=id=>document.getElementById(id);
+$('spin').oninput = e=>{ $('vspin').textContent=(+e.target.value).toFixed(3); updatePhoton(); };
+$('nut').oninput  = e=>{ $('vnut').textContent=(+e.target.value).toFixed(2); updatePhoton(); };
+
+// ---- predicted photon-ring / shadow asymmetry (equatorial, M=1). metric 0=Kerr-Schild(a), 1=Taub-NUT(l) ----
+function geqP(metric,r,p){ if(metric===0){const a=p,D=r*r-2*r+a*a;
+    return {gtt:-(r*r+a*a+2*a*a/r)/D, gtp:-2*a/(r*D), gpp:(1-2/r)/D, rh:1+Math.sqrt(Math.max(1-a*a,0))};}
+  const l=p,R2=r*r+l*l,f=(r*r-2*r-l*l)/R2;                              // Taub-NUT equator, N=2l
+  return {gtt:-1/f+4*l*l/R2, gtp:-2*l/R2, gpp:1/R2, rh:1+Math.sqrt(1+l*l)};}
+function bBp(metric,r,p,sg){const {gtt,gtp,gpp}=geqP(metric,r,p);return (gtp+sg*Math.sqrt(gtp*gtp-gpp*gtt))/gpp;}
+function photonP(metric,p,sg){const rh=geqP(metric,1,p).rh;             // r_ph = extremum of b(r)
+  const db=r=>(bBp(metric,r+1e-5,p,sg)-bBp(metric,r-1e-5,p,sg))/2e-5;
+  let prev=db(rh+0.01),rph=null;
+  for(let r=rh+0.013;r<50;r+=0.003){const c=db(r);if(prev*c<0){let a=r-0.003,b=r;
+    for(let k=0;k<50;k++){const m=(a+b)/2;(db(a)*db(m)<0)?b=m:a=m;}rph=(a+b)/2;break;}prev=c;}
+  return rph?{rph,b:bBp(metric,rph,p,sg)}:null;}
+function updatePhoton(){const metric=+$('metric').value, p=metric===0?+$('spin').value:+$('nut').value;
+  const A=photonP(metric,p,1), B=photonP(metric,p,-1);
+  if(!A||!B){$('photon').innerHTML=''; return;}
+  const bp=Math.abs(A.b), bm=Math.abs(B.b), lo=Math.min(bp,bm), hi=Math.max(bp,bm);
+  const asym=100*(hi-lo)/((bp+bm)/2);
+  let s=`photon-ring b = ${lo.toFixed(2)} / ${hi.toFixed(2)} M · asym ${asym.toFixed(0)}%`;
+  if(asym<1) s+=' (symmetric)';
+  else if(metric===1) s+=`<br>rigid shift 2l = ${((hi-lo)/2).toFixed(2)} M — shadow displaced, not deformed`;
+  else s+='<br>D-shaped — shadow deformed by frame dragging';
+  $('photon').innerHTML=s;}
+$('fov').oninput  = e=> $('vfov').textContent=e.target.value+'°';
+$('steps').oninput= e=> $('vsteps').textContent=e.target.value;
+$('res').oninput  = e=>{ $('vres').textContent=e.target.value+'%'; resize(); };
+$('spinlbl').onchange = e=> autoOrbit=e.target.checked;
+$('metric').onchange = updatePhoton; updatePhoton();
+
+// ---- mobile: collapse the panel, wire the toggle, drop quality so a phone GPU copes ----
+if(matchMedia('(pointer:coarse)').matches || innerWidth<640){
+  document.body.classList.add('mobile');                 // CSS hides #ui until .ui-open
+  $('steps').value=160; $('vsteps').textContent='160';   // 240 RK4 steps is too heavy on mobile
+  $('res').value=75;    $('vres').textContent='75%';      // render below display res, upsample (resize() reads this next)
+}
+$('panelToggle').onclick=()=>{
+  const open=document.body.classList.toggle('ui-open');
+  $('panelToggle').setAttribute('aria-expanded', open);
+};
+
+function resize(){ const s=(+$('res').value)/100;
+  cv.width=Math.round(innerWidth); cv.height=Math.round(innerHeight);   // backing store = display (1:1)
+  ssW=Math.max(1,Math.round(cv.width*s)); ssH=Math.max(1,Math.round(cv.height*s)); // internal SSAA res
+  buildTargets(); }
+addEventListener('resize', resize); resize();
+
+function cross(a,b){return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];}
+function norm(a){const l=Math.hypot(...a);return [a[0]/l,a[1]/l,a[2]/l];}
+
+let t0=performance.now(), fpsAcc=0, fpsN=0, fpsT=0;
+function frame(now){
+  const dt=(now-t0)/1000; t0=now;
+  fpsAcc+=dt; fpsN++; fpsT+=dt;
+  if(fpsT>0.5){ document.getElementById('fps').textContent=(fpsN/fpsAcc).toFixed(0)+' fps @ '+ssW+'×'+ssH; fpsAcc=0; fpsN=0; fpsT=0; }
+  if(autoOrbit) yaw += dt*0.15;
+  const sp=Math.sin(pitch), cp=Math.cos(pitch);
+  const pos=[radius*sp*Math.cos(yaw), radius*sp*Math.sin(yaw), radius*cp];
+  const fwd=norm([-pos[0],-pos[1],-pos[2]]);
+  const up0=[0,0,1];
+  let right=norm(cross(fwd,up0)); let up=cross(right,fwd);
+
+  // --- Pass 1: geodesic ray trace -> HDR scene texture ---
+  gl.useProgram(progScene); const U=n=>uni(progScene,n);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fboScene); gl.viewport(0,0,ssW,ssH);
+  gl.uniform2f(U('uRes'), ssW, ssH);
+  gl.uniform3fv(U('uCamPos'), pos);
+  gl.uniform3fv(U('uCamFwd'), fwd);
+  gl.uniform3fv(U('uCamRight'), right);
+  gl.uniform3fv(U('uCamUp'), up);
+  gl.uniform1f(U('uTanFov'), Math.tan((+$('fov').value)*Math.PI/360));
+  gl.uniform1f(U('uSpin'), +$('spin').value);
+  gl.uniform1f(U('uNut'), +$('nut').value);
+  gl.uniform1f(U('uTime'), now/1000);
+  gl.uniform1f(U('uDiskIn'), 6.0);
+  gl.uniform1f(U('uDiskOut'), 22.0);
+  gl.uniform1i(U('uSteps'), +$('steps').value);
+  gl.uniform1i(U('uMetric'), +$('metric').value);
+  gl.uniform1i(U('uDisk'), $('disk').checked?1:0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // --- Pass 2: bright-pass + horizontal blur -> B0 (half res) ---
+  gl.useProgram(progBlur);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fboB0); gl.viewport(0,0,bloomW,bloomH);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texScene);
+  gl.uniform1i(uni(progBlur,'uTex'),0);
+  gl.uniform2f(uni(progBlur,'uInvOut'),1/bloomW,1/bloomH);
+  gl.uniform2f(uni(progBlur,'uStep'),1.5/bloomW,0.0);
+  gl.uniform1f(uni(progBlur,'uBright'),1.0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // --- Pass 3: vertical blur -> B1 ---
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fboB1); gl.viewport(0,0,bloomW,bloomH);
+  gl.bindTexture(gl.TEXTURE_2D, texB0);
+  gl.uniform2f(uni(progBlur,'uStep'),0.0,1.5/bloomH);
+  gl.uniform1f(uni(progBlur,'uBright'),0.0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // --- Pass 4: composite scene + bloom, tonemap -> screen ---
+  gl.useProgram(progPresent);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0,0,cv.width,cv.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texScene);
+  gl.uniform1i(uni(progPresent,'uScene'),0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texB1);
+  gl.uniform1i(uni(progPresent,'uBloom'),1);
+  gl.uniform2f(uni(progPresent,'uInvOut'),1/cv.width,1/cv.height);
+  gl.uniform1f(uni(progPresent,'uBloomStr'),0.8);
+  gl.uniform1i(uni(progPresent,'uSS'), Math.min(3,Math.max(1,Math.ceil(ssW/cv.width))));
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

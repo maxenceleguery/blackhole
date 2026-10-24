@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Binary Black Hole Lensing — Brill–Lindquist two-shadow</title>
+<meta name="description" content="Gravitational lensing of two black holes rendered from Brill–Lindquist initial data: two shadows and two photon rings that merge as the holes approach. Real-time WebGL geodesic ray tracing.">
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px/1.5 ui-monospace,monospace;color:#ccc}
+  canvas{display:block;width:100vw;height:100vh}
+  #ui{position:fixed;top:10px;left:10px;z-index:5;background:rgba(10,10,16,.82);padding:12px 14px;border:1px solid #333;border-radius:8px;backdrop-filter:blur(4px);max-width:255px}
+  #ui h2{font-size:13px;margin:0 0 8px;color:#fff;font-weight:600}
+  #ui label{display:block;margin:8px 0 2px;color:#9ad}
+  #ui input[type=range]{width:100%}
+  #ui .v{color:#fff;float:right}
+  #ui .hint{margin-top:10px;color:#667;font-size:11px}
+  #nav{position:fixed;top:10px;right:12px;z-index:10;display:flex;gap:6px;font:12px/1 ui-monospace,monospace}
+  #nav a{padding:6px 10px;background:rgba(10,10,16,.72);border:1px solid #333;border-radius:6px;color:#9ad;text-decoration:none;backdrop-filter:blur(4px)}
+  #nav a:hover{background:rgba(30,40,55,.85);color:#cde}
+  #nav a.active{color:#fff;border-color:#4a6a8a;background:rgba(28,43,58,.9)}
+  /* ---- mobile / touch ---- */
+  canvas{touch-action:none}
+  #ui input[type=range]{height:26px;accent-color:#4a6a8a}
+  #panelToggle{position:fixed;z-index:11;display:none;
+    top:calc(10px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left));
+    padding:11px 14px;background:rgba(10,10,16,.82);border:1px solid #333;border-radius:8px;
+    color:#9ad;font:13px/1 ui-monospace,monospace;backdrop-filter:blur(4px);cursor:pointer}
+  body.mobile #panelToggle{display:block}
+  body.mobile #ui{display:none;max-width:min(330px,calc(100vw - 20px));max-height:72vh;overflow-y:auto;
+    top:calc(56px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left))}
+  body.mobile.ui-open #ui{display:block}
+  @media (max-width:560px){ #nav{flex-wrap:wrap;justify-content:flex-end;max-width:62vw} }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<nav id="nav">
+  <a href="index.html">◍ Black Hole</a>
+  <a href="qnm.html">〜 QNM</a>
+  <a href="gw.html">≈ Waves</a>
+  <a href="binary.html" class="active">◎ Binary</a>
+</nav>
+<button id="panelToggle" aria-expanded="false" aria-controls="ui">☰ controls</button>
+<div id="ui">
+  <h2>◎ Binary black hole lensing</h2>
+  <label>Mass 1 <span class="v" id="vm1">1.0</span></label>
+  <input type="range" id="m1" min="0.3" max="2" step="0.05" value="1">
+  <label>Mass 2 <span class="v" id="vm2">1.0</span></label>
+  <input type="range" id="m2" min="0.3" max="2" step="0.05" value="1">
+  <label>Separation <span class="v" id="vsep">14</span></label>
+  <input type="range" id="sep" min="3" max="30" step="0.5" value="14">
+  <label>Steps <span class="v" id="vsteps">380</span></label>
+  <input type="range" id="steps" min="120" max="700" step="20" value="380">
+  <label>Resolution <span class="v" id="vres">80%</span></label>
+  <input type="range" id="res" min="30" max="150" step="5" value="80">
+  <label><input type="checkbox" id="spinlbl" checked> auto-orbit</label>
+  <div class="hint">drag / 1-finger = look · wheel / pinch = zoom<br>Brill–Lindquist initial data. Bring the two close to watch the shadows merge.</div>
+  <div class="hint" id="gpu"></div>
+  <div class="hint" id="fps"></div>
+</div>
+
+<script id="fs" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+out vec4 outColor;
+uniform vec2  uRes;
+uniform vec3  uCamPos, uCamRight, uCamUp, uCamFwd;
+uniform float uTanFov, uM1, uM2, uSep;
+uniform int   uSteps;
+
+vec3 P1(){ return vec3(-0.5*uSep,0.0,0.0); }
+vec3 P2(){ return vec3( 0.5*uSep,0.0,0.0); }
+
+// Brill-Lindquist conformal factor and (product-ansatz) lapse.
+// psi = 1 + m1/2r1 + m2/2r2 ;  alpha = prod (1 - m/2r)/(1 + m/2r)
+// -> exact isotropic Schwarzschild for a single hole, approximate for two.
+float psiF(vec3 P){ return 1.0 + uM1/(2.0*length(P-P1())) + uM2/(2.0*length(P-P2())); }
+float lapseF(vec3 P){
+  float r1=length(P-P1()), r2=length(P-P2());
+  float a1=(1.0-uM1/(2.0*r1))/(1.0+uM1/(2.0*r1));
+  float a2=(1.0-uM2/(2.0*r2))/(1.0+uM2/(2.0*r2));
+  return a1*a2;
+}
+// scalar Hamiltonian for the static metric diag(-1/a^2, 1/psi^4 * I), photon p_t=-1
+float Hs(vec3 P, vec3 ps){ float a=lapseF(P), q=psiF(P); float q4=q*q*q*q;
+  return 0.5*(-1.0/(a*a) + dot(ps,ps)/q4); }
+void rhs(vec3 P, vec3 ps, out vec3 dP, out vec3 dp){
+  float q=psiF(P), q4=q*q*q*q;
+  dP = ps/q4;                                   // dx^i/dl = g^{ii} p_i
+  const float h=2e-3;
+  dp.x = -(Hs(P+vec3(h,0,0),ps)-Hs(P-vec3(h,0,0),ps))/(2.0*h);
+  dp.y = -(Hs(P+vec3(0,h,0),ps)-Hs(P-vec3(0,h,0),ps))/(2.0*h);
+  dp.z = -(Hs(P+vec3(0,0,h),ps)-Hs(P-vec3(0,0,h),ps))/(2.0*h);
+}
+
+// ---- starfield + nebula (background sky) ----
+float hash13(vec3 p){ p=fract(p*.1031); p+=dot(p,p.zyx+31.32); return fract((p.x+p.y)*p.z); }
+vec3  hash33(vec3 p){ p=fract(p*vec3(.1031,.1030,.0973)); p+=dot(p,p.yxz+33.33); return fract((p.xxy+p.yxx)*p.zyx); }
+vec3 background(vec3 d){
+  d=normalize(d);
+  vec3 col=vec3(0.006,0.008,0.016) + vec3(0.03,0.02,0.05)*pow(max(0.0,1.0-abs(d.z)),6.0);
+  for(float k=0.0;k<2.0;k++){
+    float sc=150.0*exp2(k);
+    vec3 gv=fract(d*sc)-0.5, rnd=hash33(floor(d*sc));
+    float present=step(0.955-k*0.006, rnd.x);
+    float rad=length(gv)+(1.0-rnd.y)*0.35;
+    float star=pow(present*smoothstep(0.55,0.0,rad),2.0)*(0.4+rnd.z);
+    col += mix(vec3(0.7,0.8,1.0), vec3(1.0,0.82,0.55), rnd.z)*star*1.3;
+  }
+  return col;
+}
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy/uRes)*2.0-1.0; float aspect=uRes.x/uRes.y;
+  vec3 dir=normalize(uCamFwd + (uv.x*aspect*uTanFov)*uCamRight + (uv.y*uTanFov)*uCamUp);
+  vec3 P=uCamPos;
+  float q0=psiF(P), a0=lapseF(P);
+  vec3 ps = dir*(q0*q0/a0);                       // null: |ps| = psi^2 / alpha
+  float rh1=0.5*uM1, rh2=0.5*uM2;                 // isotropic throat radii
+  vec3 col=vec3(0.0); bool done=false; vec3 pdir=dir; float turn=0.0;
+  for(int i=0;i<800;i++){
+    if(i>=uSteps) break;
+    float r1=length(P-P1()), r2=length(P-P2());
+    if(r1<rh1*1.03 || r2<rh2*1.03){ col=vec3(0.0); done=true; break; }   // captured -> shadow
+    // photon-ring demagnification: nested lensed-sky images fade ~e^-(turn-pi) -> clean shadow
+    if(length(P)>80.0){ col=background(ps)*exp(-max(turn-3.14159,0.0)*1.7); done=true; break; }
+    float dl=clamp(0.12*min(r1,r2), 0.02, 1.6);
+    vec3 k1P,k1p,k2P,k2p,k3P,k3p,k4P,k4p;
+    rhs(P,ps,k1P,k1p);
+    rhs(P+0.5*dl*k1P, ps+0.5*dl*k1p, k2P,k2p);
+    rhs(P+0.5*dl*k2P, ps+0.5*dl*k2p, k3P,k3p);
+    rhs(P+dl*k3P, ps+dl*k3p, k4P,k4p);
+    vec3 Pn = P  + dl/6.0*(k1P+2.0*k2P+2.0*k3P+k4P);
+    vec3 pn = ps + dl/6.0*(k1p+2.0*k2p+2.0*k3p+k4p);
+    vec3 nd = normalize(Pn-P); turn += acos(clamp(dot(pdir,nd),-1.0,1.0)); pdir=nd;
+    P=Pn; ps=pn;
+  }
+  if(!done) col=vec3(0.0);                         // ran out of steps near a throat -> shadow
+  outColor=vec4(pow(aces(col*1.2), vec3(1.0/2.2)), 1.0);
+}
+</script>
+<script>
+const cv=document.getElementById('c'), gl=cv.getContext('webgl2',{antialias:false});
+if(!gl){document.body.innerHTML='<p style="color:#fff;padding:20px">WebGL2 not available.</p>';}
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o;}
+const vs=sh(gl.VERTEX_SHADER,`#version 300 es
+void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0,1);}`);
+const fs=sh(gl.FRAGMENT_SHADER,document.getElementById('fs').textContent);
+const prog=gl.createProgram();gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw gl.getProgramInfoLog(prog);
+gl.useProgram(prog); const U=n=>gl.getUniformLocation(prog,n);
+(()=>{const d=gl.getExtension('WEBGL_debug_renderer_info');
+  document.getElementById('gpu').textContent='GPU: '+(d?gl.getParameter(d.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER));})();
+
+const $=id=>document.getElementById(id);
+let yaw=0.5, pitch=1.35, radius=42, autoOrbit=true, drag=false, lx=0, ly=0;
+cv.addEventListener('mousedown',e=>{drag=true;lx=e.clientX;ly=e.clientY;});
+addEventListener('mouseup',()=>drag=false);
+addEventListener('mousemove',e=>{if(!drag)return;
+  yaw-=(e.clientX-lx)*0.005; pitch+=(e.clientY-ly)*0.005; pitch=Math.max(0.05,Math.min(Math.PI-0.05,pitch));
+  lx=e.clientX;ly=e.clientY; autoOrbit=false; $('spinlbl').checked=false;});
+cv.addEventListener('wheel',e=>{radius*=Math.exp(e.deltaY*0.0008);radius=Math.max(8,Math.min(160,radius));e.preventDefault();},{passive:false});
+
+// ---- touch: 1 finger = orbit, 2 fingers = pinch-zoom ----
+let pinchD=0;
+const tdist=e=>{const a=e.touches[0],b=e.touches[1];return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);};
+cv.addEventListener('touchstart',e=>{
+  if(e.touches.length===1){drag=true;lx=e.touches[0].clientX;ly=e.touches[0].clientY;}
+  else{drag=false;pinchD=tdist(e);}
+},{passive:false});
+cv.addEventListener('touchmove',e=>{e.preventDefault();
+  if(e.touches.length===1&&drag){const t=e.touches[0];
+    yaw-=(t.clientX-lx)*0.005;pitch+=(t.clientY-ly)*0.005;pitch=Math.max(0.05,Math.min(Math.PI-0.05,pitch));
+    lx=t.clientX;ly=t.clientY;autoOrbit=false;$('spinlbl').checked=false;
+  }else if(e.touches.length>=2){const d=tdist(e);
+    if(pinchD>0){radius*=Math.exp((pinchD-d)*0.006);radius=Math.max(8,Math.min(160,radius));}pinchD=d;}
+},{passive:false});
+cv.addEventListener('touchend',e=>{
+  if(e.touches.length===0){drag=false;pinchD=0;}
+  else if(e.touches.length===1){drag=true;pinchD=0;lx=e.touches[0].clientX;ly=e.touches[0].clientY;}
+},{passive:false});
+for(const [id,fmt] of [['m1',v=>(+v).toFixed(1)],['m2',v=>(+v).toFixed(1)],['sep',v=>v],['steps',v=>v],['res',v=>v+'%']])
+  $(id).oninput=e=>{$('v'+id).textContent=fmt(e.target.value); if(id==='res')resize();};
+$('spinlbl').onchange=e=>autoOrbit=e.target.checked;
+
+// ---- mobile: collapse the panel, wire toggle, lighter defaults for a phone GPU ----
+if(matchMedia('(pointer:coarse)').matches || innerWidth<640){
+  document.body.classList.add('mobile');
+  $('steps').value=200; $('vsteps').textContent='200';
+  $('res').value=55;    $('vres').textContent='55%';
+}
+$('panelToggle').onclick=()=>{ const open=document.body.classList.toggle('ui-open'); $('panelToggle').setAttribute('aria-expanded',open); };
+
+function resize(){const s=(+$('res').value)/100; cv.width=Math.round(innerWidth*s); cv.height=Math.round(innerHeight*s); gl.viewport(0,0,cv.width,cv.height);}
+addEventListener('resize',resize); resize();
+function cross(a,b){return[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+function norm(a){const l=Math.hypot(...a);return[a[0]/l,a[1]/l,a[2]/l];}
+let t0=performance.now(),fa=0,fn=0,ft=0;
+function frame(now){
+  const dt=(now-t0)/1000; t0=now; fa+=dt;fn++;ft+=dt;
+  if(ft>0.5){$('fps').textContent=(fn/fa).toFixed(0)+' fps @ '+cv.width+'×'+cv.height;fa=0;fn=0;ft=0;}
+  if(autoOrbit) yaw+=dt*0.12;
+  const sp=Math.sin(pitch),cp=Math.cos(pitch);
+  const pos=[radius*sp*Math.cos(yaw),radius*sp*Math.sin(yaw),radius*cp];
+  const fwd=norm([-pos[0],-pos[1],-pos[2]]);
+  let right=norm(cross(fwd,[0,0,1])); let up=cross(right,fwd);
+  gl.uniform2f(U('uRes'),cv.width,cv.height);
+  gl.uniform3fv(U('uCamPos'),pos); gl.uniform3fv(U('uCamFwd'),fwd);
+  gl.uniform3fv(U('uCamRight'),right); gl.uniform3fv(U('uCamUp'),up);
+  gl.uniform1f(U('uTanFov'),Math.tan(55*Math.PI/360));
+  gl.uniform1f(U('uM1'),+$('m1').value); gl.uniform1f(U('uM2'),+$('m2').value);
+  gl.uniform1f(U('uSep'),+$('sep').value); gl.uniform1i(U('uSteps'),+$('steps').value);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
